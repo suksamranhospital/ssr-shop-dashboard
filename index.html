@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>รายงานยอดขายร้านค้าสวัสดิการ · โรงพยาบาลสุขสำราญ</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=Bai+Jamjuree:wght@500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<style>
+  :root{
+    --bg:#F5F8F7;
+    --card:#FFFFFF;
+    --ink:#12283A;
+    --ink-soft:#5A7184;
+    --line:#E1E9E6;
+    --navy:#0F3B66;
+    --teal:#0E8A7B;
+    --cash:#1D9A6C;
+    --transfer:#2E7CD6;
+    --profit:#D98E04;
+    --cost:#B85C5C;
+    --radius:14px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    font-family:'IBM Plex Sans Thai',sans-serif;
+    background:var(--bg);color:var(--ink);
+    padding:0 0 48px;
+  }
+  h1,h2,h3,.num{font-family:'Bai Jamjuree','IBM Plex Sans Thai',sans-serif}
+
+  /* ===== Header ===== */
+  header{
+    background:linear-gradient(135deg,var(--navy) 0%,#155A8A 70%,var(--teal) 130%);
+    color:#fff;padding:26px 28px 22px;
+  }
+  .head-inner{max-width:1180px;margin:0 auto;display:flex;flex-wrap:wrap;gap:16px;align-items:flex-end;justify-content:space-between}
+  .head-eyebrow{font-size:.8rem;letter-spacing:.12em;opacity:.85;text-transform:uppercase;margin-bottom:6px}
+  header h1{font-size:1.6rem;font-weight:700;line-height:1.25}
+  #periodLabel{font-size:.95rem;opacity:.9;margin-top:6px}
+  .head-actions{display:flex;gap:10px}
+  .btn{
+    border:1px solid rgba(255,255,255,.45);background:rgba(255,255,255,.12);
+    color:#fff;padding:8px 16px;border-radius:9px;font-family:inherit;
+    font-size:.9rem;cursor:pointer;transition:background .15s;
+  }
+  .btn:hover{background:rgba(255,255,255,.25)}
+  .btn:focus-visible{outline:2px solid #fff;outline-offset:2px}
+
+  main{max-width:1180px;margin:0 auto;padding:22px 20px 0}
+
+  /* ===== Filters ===== */
+  .filters{
+    background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+    padding:16px 18px;display:flex;flex-wrap:wrap;gap:18px;align-items:flex-end;
+    box-shadow:0 1px 3px rgba(15,59,102,.06);
+  }
+  .f-group{display:flex;flex-direction:column;gap:6px}
+  .f-label{font-size:.78rem;font-weight:600;color:var(--ink-soft)}
+  .date-row{display:flex;align-items:center;gap:8px}
+  input[type=date]{
+    font-family:inherit;font-size:.9rem;padding:7px 10px;
+    border:1px solid var(--line);border-radius:8px;color:var(--ink);background:#fff;
+  }
+  .chips{display:flex;gap:6px;flex-wrap:wrap}
+  .chip{
+    padding:7px 16px;border-radius:999px;border:1px solid var(--line);
+    background:#fff;color:var(--ink-soft);font-family:inherit;font-size:.87rem;
+    cursor:pointer;transition:all .15s;font-weight:500;
+  }
+  .chip:focus-visible{outline:2px solid var(--navy);outline-offset:2px}
+  .chip.active{background:var(--navy);border-color:var(--navy);color:#fff}
+  .chip.c-cash.active{background:var(--cash);border-color:var(--cash)}
+  .chip.c-tf.active{background:var(--transfer);border-color:var(--transfer)}
+  .chip.preset{padding:6px 12px;font-size:.8rem}
+
+  /* ===== KPI ===== */
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:14px;margin:20px 0}
+  .kpi{
+    background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+    padding:16px 18px;position:relative;overflow:hidden;
+    box-shadow:0 1px 3px rgba(15,59,102,.06);
+  }
+  .kpi::before{content:'';position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--kc,var(--navy))}
+  .kpi .k-label{font-size:.8rem;color:var(--ink-soft);font-weight:500}
+  .kpi .k-value{font-size:1.55rem;font-weight:700;margin-top:4px;font-family:'Bai Jamjuree',sans-serif;color:var(--kc,var(--ink))}
+  .kpi .k-sub{font-size:.75rem;color:var(--ink-soft);margin-top:3px}
+
+  /* ===== Cards / charts ===== */
+  .grid2{display:grid;grid-template-columns:2fr 1fr;gap:14px;margin-bottom:14px}
+  @media(max-width:860px){.grid2{grid-template-columns:1fr}}
+  .card{
+    background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+    padding:18px;box-shadow:0 1px 3px rgba(15,59,102,.06);
+  }
+  .card h2{font-size:1.02rem;font-weight:600;margin-bottom:12px;display:flex;align-items:center;gap:8px}
+  .card h2::before{content:'';width:8px;height:8px;border-radius:2px;background:var(--teal)}
+  .chart-wrap{position:relative;height:320px}
+  .chart-wrap.sm{height:280px}
+
+  /* ===== Table ===== */
+  table{width:100%;border-collapse:collapse;font-size:.88rem}
+  th{
+    text-align:right;padding:9px 12px;background:#F0F5F3;color:var(--ink-soft);
+    font-weight:600;font-size:.8rem;border-bottom:2px solid var(--line);white-space:nowrap;
+  }
+  th:first-child,td:first-child{text-align:left}
+  td{padding:8px 12px;text-align:right;border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums}
+  tbody tr:hover{background:#F7FBF9}
+  tfoot td{font-weight:700;background:#F0F5F3;border-top:2px solid var(--navy)}
+  .pos{color:var(--cash)} .neg{color:var(--cost)}
+
+  /* ===== states ===== */
+  #stateBox{margin:60px auto;max-width:560px;text-align:center;color:var(--ink-soft)}
+  #stateBox .spin{
+    width:38px;height:38px;border:4px solid var(--line);border-top-color:var(--teal);
+    border-radius:50%;margin:0 auto 16px;animation:sp 1s linear infinite;
+  }
+  @keyframes sp{to{transform:rotate(360deg)}}
+  .err{background:#FDF3F2;border:1px solid #EAC7C3;color:#8A3B33;border-radius:12px;padding:18px;text-align:left;font-size:.9rem;line-height:1.7}
+  footer{max-width:1180px;margin:26px auto 0;padding:0 20px;font-size:.76rem;color:var(--ink-soft)}
+
+  @media(prefers-reduced-motion:reduce){.spin{animation:none}}
+  @media print{
+    header{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    .filters,.head-actions{display:none}
+    body{background:#fff}
+    .card,.kpi{box-shadow:none;break-inside:avoid}
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="head-inner">
+    <div>
+      <div class="head-eyebrow">Welfare Shop · Suksumran Hospital</div>
+      <h1>รายงานยอดขายร้านค้าสวัสดิการ โรงพยาบาลสุขสำราญ</h1>
+      <div id="periodLabel">กำลังโหลดข้อมูล…</div>
+    </div>
+    <div class="head-actions">
+      <button class="btn" onclick="loadData()">⟳ โหลดข้อมูลใหม่</button>
+      <button class="btn" onclick="window.print()">🖨 พิมพ์รายงาน</button>
+    </div>
+  </div>
+</header>
+
+<main>
+  <div id="stateBox"><div class="spin"></div>กำลังดึงข้อมูลจาก Google Sheets…</div>
+
+  <div id="dash" style="display:none">
+    <!-- Filters -->
+    <section class="filters" aria-label="ตัวกรองข้อมูล">
+      <div class="f-group">
+        <span class="f-label">ช่วงวันที่ (ยอดขายวันที่)</span>
+        <div class="date-row">
+          <input type="date" id="dateFrom" onchange="render()">
+          <span>ถึง</span>
+          <input type="date" id="dateTo" onchange="render()">
+        </div>
+      </div>
+      <div class="f-group">
+        <span class="f-label">ช่วงเวลาด่วน</span>
+        <div class="chips">
+          <button class="chip preset" onclick="preset(7)">7 วันล่าสุด</button>
+          <button class="chip preset" onclick="preset(30)">30 วันล่าสุด</button>
+          <button class="chip preset" onclick="preset('month')">เดือนนี้</button>
+          <button class="chip preset" onclick="preset('all')">ทั้งหมด</button>
+        </div>
+      </div>
+      <div class="f-group">
+        <span class="f-label">ประเภทการชำระเงิน</span>
+        <div class="chips" id="payChips">
+          <button class="chip active" data-pay="all" onclick="setPay('all',this)">ทั้งหมด</button>
+          <button class="chip c-cash" data-pay="cash" onclick="setPay('cash',this)">เงินสด</button>
+          <button class="chip c-tf" data-pay="transfer" onclick="setPay('transfer',this)">เงินโอน</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- KPI -->
+    <section class="kpis" id="kpiRow"></section>
+
+    <!-- Charts -->
+    <div class="grid2">
+      <div class="card">
+        <h2>ยอดขายรายวัน</h2>
+        <div class="chart-wrap"><canvas id="chartDaily"></canvas></div>
+      </div>
+      <div class="card">
+        <h2>สัดส่วนเงินสด / เงินโอน</h2>
+        <div class="chart-wrap sm"><canvas id="chartPie"></canvas></div>
+      </div>
+    </div>
+    <div class="card" style="margin-bottom:14px">
+      <h2>กำไร เทียบ ต้นทุน รายวัน</h2>
+      <div class="chart-wrap sm"><canvas id="chartProfit"></canvas></div>
+    </div>
+
+    <!-- Table -->
+    <div class="card">
+      <h2>รายละเอียดรายวัน</h2>
+      <div style="overflow-x:auto">
+        <table id="tbl">
+          <thead>
+            <tr><th>วันที่</th><th>ยอดขาย (บาท)</th><th>เงินสด</th><th>เงินโอน</th><th>ต้นทุน</th><th>กำไร</th><th>อัตรากำไร</th></tr>
+          </thead>
+          <tbody></tbody>
+          <tfoot></tfoot>
+        </table>
+      </div>
+    </div>
+  </div>
+</main>
+
+<footer>
+  แหล่งข้อมูล: Google Sheets (เผยแพร่เป็น CSV) · อัปเดตล่าสุดเมื่อเปิดหน้าหรือกด "โหลดข้อมูลใหม่" · จัดทำโดยกลุ่มงานสุขภาพดิจิทัล โรงพยาบาลสุขสำราญ
+</footer>
+
+<script>
+const CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQTiKkgS4-1quVWsJbvjKy-a6xHqAO6ulVIKWtlKK60FoW0cMgqZIvuuprzQL_eIg0Oa4QB-MLU9cYG/pub?output=csv";
+
+let allRows = [];          // {date:Date, sale, cash, transfer, profit, cost}
+let payMode = 'all';
+let charts = {};
+
+const THB = n => n.toLocaleString('th-TH',{minimumFractionDigits:2,maximumFractionDigits:2});
+const THB0 = n => n.toLocaleString('th-TH',{maximumFractionDigits:0});
+const THMONTH = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
+const thDate = d => `${d.getDate()} ${THMONTH[d.getMonth()]} ${(d.getFullYear()+543)%100}`;
+const thDateFull = d => `${d.getDate()} ${THMONTH[d.getMonth()]} ${d.getFullYear()+543}`;
+
+/* ---------- parsing ---------- */
+function parseNumber(v){
+  if(v == null) return 0;
+  const n = parseFloat(String(v).replace(/[,฿\s]/g,''));
+  return isNaN(n) ? 0 : n;
+}
+const TH_MONTHS = {'ม.ค':1,'มกราคม':1,'ก.พ':2,'กุมภาพันธ์':2,'มี.ค':3,'มีนาคม':3,'เม.ย':4,'เมษายน':4,
+'พ.ค':5,'พฤษภาคม':5,'มิ.ย':6,'มิถุนายน':6,'ก.ค':7,'กรกฎาคม':7,'ส.ค':8,'สิงหาคม':8,
+'ก.ย':9,'กันยายน':9,'ต.ค':10,'ตุลาคม':10,'พ.ย':11,'พฤศจิกายน':11,'ธ.ค':12,'ธันวาคม':12};
+
+function fixYear(y){
+  y = parseInt(y,10);
+  if(y < 100) y += (y > 60 ? 2500 : 2000);   // 68 -> 2568, 26 -> 2026
+  if(y > 2400) y -= 543;                      // พ.ศ. -> ค.ศ.
+  return y;
+}
+function parseThaiDate(s){
+  if(!s) return null;
+  s = String(s).trim();
+  // dd/mm/yyyy หรือ dd-mm-yyyy (อาจมีเวลา ต่อท้าย)
+  let m = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})/);
+  if(m){
+    const d = new Date(fixYear(m[3]), parseInt(m[2],10)-1, parseInt(m[1],10));
+    return isNaN(d) ? null : d;
+  }
+  // yyyy-mm-dd
+  m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if(m){
+    const d = new Date(fixYear(m[1]), parseInt(m[2],10)-1, parseInt(m[3],10));
+    return isNaN(d) ? null : d;
+  }
+  // 1 ก.ค. 2568 / 1 กรกฎาคม 2568
+  m = s.match(/^(\d{1,2})\s*([ก-ฮ.]+)\s*(\d{2,4})/);
+  if(m){
+    const key = Object.keys(TH_MONTHS).find(k => m[2].startsWith(k));
+    if(key) return new Date(fixYear(m[3]), TH_MONTHS[key]-1, parseInt(m[1],10));
+  }
+  const d = new Date(s);
+  return isNaN(d) ? null : d;
+}
+
+/* ---------- load ---------- */
+function loadData(){
+  const sb = document.getElementById('stateBox');
+  sb.style.display='block';
+  sb.innerHTML = '<div class="spin"></div>กำลังดึงข้อมูลจาก Google Sheets…';
+  document.getElementById('dash').style.display='none';
+
+  fetch(CSV_URL + '&_=' + Date.now(), {cache:'no-store'})
+    .then(r => { if(!r.ok) throw new Error('HTTP '+r.status); return r.text(); })
+    .then(text => {
+      const parsed = Papa.parse(text, {header:true, skipEmptyLines:true});
+      const rows = [];
+      parsed.data.forEach(r => {
+        const keys = Object.keys(r);
+        const get = name => { const k = keys.find(k => k.trim().includes(name)); return k ? r[k] : ''; };
+        const date = parseThaiDate(get('ยอดขายวันที่') || get('วันที่'));
+        if(!date) return;
+        rows.push({
+          date,
+          sale:     parseNumber(get('ยอดขาย')),
+          cash:     parseNumber(get('เงินสด')),
+          transfer: parseNumber(get('เงินโอน')),
+          profit:   parseNumber(get('กำไร')),
+          cost:     parseNumber(get('ต้นทุน')),
+        });
+      });
+      if(rows.length === 0) throw new Error('อ่านข้อมูลได้ 0 แถว — โปรดตรวจสอบหัวคอลัมน์ในชีต');
+
+      // รวมยอดของวันเดียวกัน (กรณีกรอกหลายครั้งต่อวัน)
+      const byDay = new Map();
+      rows.forEach(r => {
+        const k = r.date.toISOString().slice(0,10);
+        if(!byDay.has(k)) byDay.set(k, {...r});
+        else { const o = byDay.get(k); o.sale+=r.sale; o.cash+=r.cash; o.transfer+=r.transfer; o.profit+=r.profit; o.cost+=r.cost; }
+      });
+      allRows = [...byDay.values()].sort((a,b)=>a.date-b.date);
+
+      // ตั้งค่าช่วงวันที่เริ่มต้น = ทั้งหมด
+      const iso = d => d.toISOString().slice(0,10);
+      document.getElementById('dateFrom').value = iso(allRows[0].date);
+      document.getElementById('dateTo').value   = iso(allRows[allRows.length-1].date);
+      document.getElementById('dateFrom').min = iso(allRows[0].date);
+      document.getElementById('dateTo').max   = iso(allRows[allRows.length-1].date);
+
+      sb.style.display='none';
+      document.getElementById('dash').style.display='block';
+      render();
+    })
+    .catch(err => {
+      sb.innerHTML = `<div class="err"><strong>ไม่สามารถโหลดข้อมูลได้</strong> (${err.message})<br><br>
+      วิธีแก้ไข:<br>
+      1. ตรวจสอบว่าชีตยังเผยแพร่เป็น CSV อยู่ (ไฟล์ → แชร์ → เผยแพร่ไปยังเว็บ)<br>
+      2. หากเปิดในหน้าพรีวิวของ Claude แล้วโหลดไม่ได้ ให้ <strong>ดาวน์โหลดไฟล์นี้แล้วเปิดด้วยเบราว์เซอร์โดยตรง</strong> หรืออัปโหลดขึ้น Netlify — จะดึงข้อมูลได้ตามปกติ<br>
+      3. กด "โหลดข้อมูลใหม่" เพื่อลองอีกครั้ง</div>`;
+    });
+}
+
+/* ---------- filters ---------- */
+function preset(p){
+  const iso = d => d.toISOString().slice(0,10);
+  const last = allRows[allRows.length-1].date;
+  let from;
+  if(p === 'all')      from = allRows[0].date;
+  else if(p === 'month') from = new Date(last.getFullYear(), last.getMonth(), 1);
+  else { from = new Date(last); from.setDate(from.getDate() - (p-1)); }
+  document.getElementById('dateFrom').value = iso(from < allRows[0].date ? allRows[0].date : from);
+  document.getElementById('dateTo').value = iso(last);
+  render();
+}
+function setPay(mode, btn){
+  payMode = mode;
+  document.querySelectorAll('#payChips .chip').forEach(c=>c.classList.remove('active'));
+  btn.classList.add('active');
+  render();
+}
+function filtered(){
+  const f = new Date(document.getElementById('dateFrom').value);
+  const t = new Date(document.getElementById('dateTo').value);
+  t.setHours(23,59,59);
+  return allRows.filter(r => r.date >= f && r.date <= t);
+}
+
+/* ---------- render ---------- */
+function kpiCard(label, value, color, sub=''){
+  return `<div class="kpi" style="--kc:${color}">
+    <div class="k-label">${label}</div>
+    <div class="k-value num">${value}</div>
+    ${sub ? `<div class="k-sub">${sub}</div>` : ''}
+  </div>`;
+}
+
+function render(){
+  const rows = filtered();
+  const payTxt = payMode==='cash' ? ' · เฉพาะเงินสด' : payMode==='transfer' ? ' · เฉพาะเงินโอน' : '';
+  const pl = document.getElementById('periodLabel');
+
+  if(rows.length === 0){
+    pl.textContent = 'ไม่มีข้อมูลในช่วงวันที่ที่เลือก';
+    document.getElementById('kpiRow').innerHTML =
+      kpiCard('ไม่มีข้อมูล','—','var(--ink-soft)','ลองขยายช่วงวันที่');
+    Object.values(charts).forEach(c=>c && c.destroy());
+    charts = {};
+    document.querySelector('#tbl tbody').innerHTML='';
+    document.querySelector('#tbl tfoot').innerHTML='';
+    return;
+  }
+
+  pl.textContent = `สรุปช่วง ${thDateFull(rows[0].date)} – ${thDateFull(rows[rows.length-1].date)} (${rows.length} วัน)${payTxt}`;
+
+  const sum = k => rows.reduce((a,r)=>a+r[k],0);
+  const totalSale = sum('sale'), totalCash = sum('cash'), totalTf = sum('transfer');
+  const totalProfit = sum('profit'), totalCost = sum('cost');
+  const shownSale = payMode==='cash' ? totalCash : payMode==='transfer' ? totalTf : totalSale;
+  const margin = totalSale > 0 ? (totalProfit/totalSale*100) : 0;
+
+  // KPI
+  let k = '';
+  k += kpiCard(payMode==='all' ? 'ยอดขายรวม' : payMode==='cash' ? 'ยอดขาย (เงินสด)' : 'ยอดขาย (เงินโอน)',
+               THB(shownSale)+' ฿','var(--navy)', `เฉลี่ย ${THB0(shownSale/rows.length)} ฿/วัน`);
+  if(payMode==='all'){
+    k += kpiCard('เงินสด', THB(totalCash)+' ฿','var(--cash)', totalSale>0 ? (totalCash/totalSale*100).toFixed(1)+'% ของยอดขาย' : '');
+    k += kpiCard('เงินโอน', THB(totalTf)+' ฿','var(--transfer)', totalSale>0 ? (totalTf/totalSale*100).toFixed(1)+'% ของยอดขาย' : '');
+  }
+  k += kpiCard('ต้นทุน', THB(totalCost)+' ฿','var(--cost)');
+  k += kpiCard('กำไร', THB(totalProfit)+' ฿','var(--profit)', `อัตรากำไร ${margin.toFixed(1)}%`);
+  document.getElementById('kpiRow').innerHTML = k;
+
+  const labels = rows.map(r=>thDate(r.date));
+  Chart.defaults.font.family = "'IBM Plex Sans Thai',sans-serif";
+  Chart.defaults.color = '#5A7184';
+  Object.values(charts).forEach(c=>c && c.destroy());
+
+  // ---- daily chart ----
+  const dsets = [];
+  if(payMode !== 'transfer')
+    dsets.push({label:'เงินสด', data:rows.map(r=>r.cash), backgroundColor:'#1D9A6C', stack:'s', borderRadius:4});
+  if(payMode !== 'cash')
+    dsets.push({label:'เงินโอน', data:rows.map(r=>r.transfer), backgroundColor:'#2E7CD6', stack:'s', borderRadius:4});
+  charts.daily = new Chart(document.getElementById('chartDaily'), {
+    type:'bar',
+    data:{labels, datasets:dsets},
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{position:'bottom'},
+        tooltip:{callbacks:{label:c=>` ${c.dataset.label}: ${THB(c.parsed.y)} ฿`}} },
+      scales:{ x:{stacked:true, grid:{display:false}},
+               y:{stacked:true, ticks:{callback:v=>THB0(v)}} }
+    }
+  });
+
+  // ---- pie ----
+  charts.pie = new Chart(document.getElementById('chartPie'), {
+    type:'doughnut',
+    data:{labels:['เงินสด','เงินโอน'],
+      datasets:[{data:[totalCash,totalTf], backgroundColor:['#1D9A6C','#2E7CD6'], borderWidth:2, borderColor:'#fff'}]},
+    options:{
+      responsive:true, maintainAspectRatio:false, cutout:'62%',
+      plugins:{ legend:{position:'bottom'},
+        tooltip:{callbacks:{label:c=>{
+          const tot = totalCash+totalTf;
+          const pct = tot>0 ? (c.parsed/tot*100).toFixed(1) : 0;
+          return ` ${c.label}: ${THB(c.parsed)} ฿ (${pct}%)`;
+        }}} }
+    }
+  });
+
+  // ---- profit vs cost ----
+  charts.profit = new Chart(document.getElementById('chartProfit'), {
+    type:'bar',
+    data:{labels, datasets:[
+      {label:'ต้นทุน', data:rows.map(r=>r.cost), backgroundColor:'rgba(184,92,92,.55)', borderRadius:4},
+      {label:'กำไร', type:'line', data:rows.map(r=>r.profit), borderColor:'#D98E04',
+       backgroundColor:'#D98E04', tension:.3, pointRadius:3, borderWidth:2.5}
+    ]},
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{position:'bottom'},
+        tooltip:{callbacks:{label:c=>` ${c.dataset.label}: ${THB(c.parsed.y)} ฿`}} },
+      scales:{ x:{grid:{display:false}}, y:{ticks:{callback:v=>THB0(v)}} }
+    }
+  });
+
+  // ---- table ----
+  const tb = document.querySelector('#tbl tbody');
+  tb.innerHTML = rows.map(r=>{
+    const m = r.sale>0 ? (r.profit/r.sale*100).toFixed(1)+'%' : '—';
+    return `<tr>
+      <td>${thDateFull(r.date)}</td>
+      <td>${THB(r.sale)}</td>
+      <td style="color:var(--cash)">${THB(r.cash)}</td>
+      <td style="color:var(--transfer)">${THB(r.transfer)}</td>
+      <td>${THB(r.cost)}</td>
+      <td class="${r.profit>=0?'pos':'neg'}">${THB(r.profit)}</td>
+      <td>${m}</td></tr>`;
+  }).join('');
+  document.querySelector('#tbl tfoot').innerHTML = `<tr>
+    <td>รวม ${rows.length} วัน</td>
+    <td>${THB(totalSale)}</td><td>${THB(totalCash)}</td><td>${THB(totalTf)}</td>
+    <td>${THB(totalCost)}</td><td>${THB(totalProfit)}</td><td>${margin.toFixed(1)}%</td></tr>`;
+}
+
+loadData();
+</script>
+</body>
+</html>
