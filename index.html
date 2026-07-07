@@ -283,20 +283,20 @@ function loadData(){
   fetch(CSV_URL + '&_=' + Date.now(), {cache:'no-store'})
     .then(r => { if(!r.ok) throw new Error('HTTP '+r.status); return r.text(); })
     .then(text => {
-      const parsed = Papa.parse(text, {header:true, skipEmptyLines:true});
+      // อ้างตำแหน่งคอลัมน์คงที่: A=ประทับเวลา B=ยอดขายวันที่ C=ยอดขาย D=เงินสด E=เงินโอน F=กำไร G=ต้นทุน
+      const parsed = Papa.parse(text, {header:false, skipEmptyLines:true});
       const rows = [];
-      parsed.data.forEach(r => {
-        const keys = Object.keys(r);
-        const get = name => { const k = keys.find(k => k.trim().includes(name)); return k ? r[k] : ''; };
-        const date = parseThaiDate(get('ยอดขายวันที่') || get('วันที่'));
+      parsed.data.forEach((r, i) => {
+        if(i === 0) return;                 // ข้ามแถวหัวตาราง
+        const date = parseThaiDate(r[1]);   // B: ยอดขายวันที่
         if(!date) return;
         rows.push({
           date,
-          sale:     parseNumber(get('ยอดขาย')),
-          cash:     parseNumber(get('เงินสด')),
-          transfer: parseNumber(get('เงินโอน')),
-          profit:   parseNumber(get('กำไร')),
-          cost:     parseNumber(get('ต้นทุน')),
+          sale:     parseNumber(r[2]),      // C: ยอดขาย
+          cash:     parseNumber(r[3]),      // D: เงินสด
+          transfer: parseNumber(r[4]),      // E: เงินโอน
+          profit:   parseNumber(r[5]),      // F: กำไร
+          cost:     parseNumber(r[6]),      // G: ต้นทุน
         });
       });
       if(rows.length === 0) throw new Error('อ่านข้อมูลได้ 0 แถว — โปรดตรวจสอบหัวคอลัมน์ในชีต');
