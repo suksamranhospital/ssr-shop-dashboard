@@ -198,6 +198,10 @@
       <h2>กำไร เทียบ ต้นทุน รายวัน</h2>
       <div class="chart-wrap sm"><canvas id="chartProfit"></canvas></div>
     </div>
+    <div class="card" style="margin-bottom:14px">
+      <h2>กำไร เทียบ ต้นทุน รายเดือน</h2>
+      <div class="chart-wrap sm"><canvas id="chartMonthly"></canvas></div>
+    </div>
 
     <!-- Table -->
     <div class="card">
@@ -231,6 +235,9 @@ const THB0 = n => n.toLocaleString('th-TH',{maximumFractionDigits:0});
 const THMONTH = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
 const thDate = d => `${d.getDate()} ${THMONTH[d.getMonth()]} ${(d.getFullYear()+543)%100}`;
 const thDateFull = d => `${d.getDate()} ${THMONTH[d.getMonth()]} ${d.getFullYear()+543}`;
+// แปลงเป็น yyyy-mm-dd ตามเวลาท้องถิ่น (ห้ามใช้ toISOString เพราะจะเลื่อนวันตาม UTC)
+const isoLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+const parseInputDate = v => { const [y,m,dd] = v.split('-').map(Number); return new Date(y, m-1, dd); };
 
 /* ---------- parsing ---------- */
 function parseNumber(v){
@@ -304,18 +311,17 @@ function loadData(){
       // รวมยอดของวันเดียวกัน (กรณีกรอกหลายครั้งต่อวัน)
       const byDay = new Map();
       rows.forEach(r => {
-        const k = r.date.toISOString().slice(0,10);
+        const k = isoLocal(r.date);
         if(!byDay.has(k)) byDay.set(k, {...r});
         else { const o = byDay.get(k); o.sale+=r.sale; o.cash+=r.cash; o.transfer+=r.transfer; o.profit+=r.profit; o.cost+=r.cost; }
       });
       allRows = [...byDay.values()].sort((a,b)=>a.date-b.date);
 
       // ตั้งค่าช่วงวันที่เริ่มต้น = ทั้งหมด
-      const iso = d => d.toISOString().slice(0,10);
-      document.getElementById('dateFrom').value = iso(allRows[0].date);
-      document.getElementById('dateTo').value   = iso(allRows[allRows.length-1].date);
-      document.getElementById('dateFrom').min = iso(allRows[0].date);
-      document.getElementById('dateTo').max   = iso(allRows[allRows.length-1].date);
+      document.getElementById('dateFrom').value = isoLocal(allRows[0].date);
+      document.getElementById('dateTo').value   = isoLocal(allRows[allRows.length-1].date);
+      document.getElementById('dateFrom').min = isoLocal(allRows[0].date);
+      document.getElementById('dateTo').max   = isoLocal(allRows[allRows.length-1].date);
 
       sb.style.display='none';
       document.getElementById('dash').style.display='block';
@@ -332,14 +338,13 @@ function loadData(){
 
 /* ---------- filters ---------- */
 function preset(p){
-  const iso = d => d.toISOString().slice(0,10);
   const last = allRows[allRows.length-1].date;
   let from;
   if(p === 'all')      from = allRows[0].date;
   else if(p === 'month') from = new Date(last.getFullYear(), last.getMonth(), 1);
   else { from = new Date(last); from.setDate(from.getDate() - (p-1)); }
-  document.getElementById('dateFrom').value = iso(from < allRows[0].date ? allRows[0].date : from);
-  document.getElementById('dateTo').value = iso(last);
+  document.getElementById('dateFrom').value = isoLocal(from < allRows[0].date ? allRows[0].date : from);
+  document.getElementById('dateTo').value = isoLocal(last);
   render();
 }
 function setPay(mode, btn){
@@ -349,9 +354,9 @@ function setPay(mode, btn){
   render();
 }
 function filtered(){
-  const f = new Date(document.getElementById('dateFrom').value);
-  const t = new Date(document.getElementById('dateTo').value);
-  t.setHours(23,59,59);
+  const f = parseInputDate(document.getElementById('dateFrom').value);
+  const t = parseInputDate(document.getElementById('dateTo').value);
+  t.setHours(23,59,59,999);
   return allRows.filter(r => r.date >= f && r.date <= t);
 }
 
@@ -451,6 +456,38 @@ function render(){
       responsive:true, maintainAspectRatio:false,
       plugins:{ legend:{position:'bottom'},
         tooltip:{callbacks:{label:c=>` ${c.dataset.label}: ${THB(c.parsed.y)} ฿`}} },
+      scales:{ x:{grid:{display:false}}, y:{ticks:{callback:v=>THB0(v)}} }
+    }
+  });
+
+  // ---- monthly profit vs cost ----
+  const byMonth = new Map();
+  rows.forEach(r=>{
+    const key = `${r.date.getFullYear()}-${String(r.date.getMonth()+1).padStart(2,'0')}`;
+    if(!byMonth.has(key)) byMonth.set(key, {y:r.date.getFullYear(), m:r.date.getMonth(), profit:0, cost:0, sale:0});
+    const o = byMonth.get(key);
+    o.profit += r.profit; o.cost += r.cost; o.sale += r.sale;
+  });
+  const months = [...byMonth.entries()].sort((a,b)=>a[0].localeCompare(b[0])).map(e=>e[1]);
+  charts.monthly = new Chart(document.getElementById('chartMonthly'), {
+    type:'bar',
+    data:{
+      labels: months.map(o=>`${THMONTH[o.m]} ${(o.y+543)%100}`),
+      datasets:[
+        {label:'ต้นทุน', data:months.map(o=>o.cost), backgroundColor:'rgba(184,92,92,.55)', borderRadius:5},
+        {label:'กำไร', data:months.map(o=>o.profit), backgroundColor:'#D98E04', borderRadius:5}
+      ]
+    },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{position:'bottom'},
+        tooltip:{callbacks:{
+          label:c=>` ${c.dataset.label}: ${THB(c.parsed.y)} ฿`,
+          afterBody:items=>{
+            const o = months[items[0].dataIndex];
+            return o.sale>0 ? `อัตรากำไร ${(o.profit/o.sale*100).toFixed(1)}%` : '';
+          }
+        }} },
       scales:{ x:{grid:{display:false}}, y:{ticks:{callback:v=>THB0(v)}} }
     }
   });
