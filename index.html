@@ -19,8 +19,8 @@
     --teal:#0E8A7B;
     --cash:#1D9A6C;
     --transfer:#2E7CD6;
-    --profit:#D98E04;
-    --cost:#B85C5C;
+    --profit:#2A9D8F;
+    --cost:#F4A261;
     --radius:14px;
   }
   *{box-sizing:border-box;margin:0;padding:0}
@@ -110,7 +110,7 @@
   td{padding:8px 12px;text-align:right;border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums}
   tbody tr:hover{background:#F7FBF9}
   tfoot td{font-weight:700;background:#F0F5F3;border-top:2px solid var(--navy)}
-  .pos{color:var(--cash)} .neg{color:var(--cost)}
+  .pos{color:var(--profit)} .neg{color:#C0392B}
 
   /* ===== pagination ===== */
   .pager{display:flex;gap:6px;justify-content:center;align-items:center;margin-top:14px;flex-wrap:wrap}
@@ -234,7 +234,7 @@
 </main>
 
 <footer>
-  แหล่งข้อมูล: Google Sheets (เผยแพร่เป็น CSV) · อัปเดตล่าสุดเมื่อเปิดหน้าหรือกด "โหลดข้อมูลใหม่" · จัดทำโดยกลุ่มงานสุขภาพดิจิทัล โรงพยาบาลสุขสำราญ
+  อัปเดตล่าสุดเมื่อเปิดหน้าหรือกด "โหลดข้อมูลใหม่" · จัดทำโดยกลุ่มงานสุขภาพดิจิทัล โรงพยาบาลสุขสำราญ
 </footer>
 
 <script>
@@ -463,9 +463,9 @@ function render(){
   charts.profit = new Chart(document.getElementById('chartProfit'), {
     type:'bar',
     data:{labels, datasets:[
-      {label:'ต้นทุน', data:rows.map(r=>r.cost), backgroundColor:'rgba(184,92,92,.55)', borderRadius:4},
-      {label:'กำไร', type:'line', data:rows.map(r=>r.profit), borderColor:'#D98E04',
-       backgroundColor:'#D98E04', tension:.3, pointRadius:3, borderWidth:2.5}
+      {label:'ต้นทุน', data:rows.map(r=>r.cost), backgroundColor:'rgba(244,162,97,.75)', borderRadius:4},
+      {label:'กำไร', type:'line', data:rows.map(r=>r.profit), borderColor:'#2A9D8F',
+       backgroundColor:'#2A9D8F', tension:.3, pointRadius:3, borderWidth:2.5}
     ]},
     options:{
       responsive:true, maintainAspectRatio:false,
@@ -489,8 +489,8 @@ function render(){
     data:{
       labels: months.map(o=>`${THMONTH[o.m]} ${(o.y+543)%100}`),
       datasets:[
-        {label:'ต้นทุน', data:months.map(o=>o.cost), backgroundColor:'#9A7BC8', borderRadius:5},
-        {label:'กำไร', data:months.map(o=>o.profit), backgroundColor:'#0E8A7B', borderRadius:5}
+        {label:'ต้นทุน', data:months.map(o=>o.cost), backgroundColor:'#F4A261', borderRadius:5},
+        {label:'กำไร', data:months.map(o=>o.profit), backgroundColor:'#2A9D8F', borderRadius:5}
       ]
     },
     options:{
@@ -507,8 +507,8 @@ function render(){
     }
   });
 
-  // ---- table (แบ่งหน้า หน้าละ 15 วัน) ----
-  tableRows = rows;
+  // ---- table (แบ่งหน้า หน้าละ 15 วัน เรียงจากวันที่ล่าสุด) ----
+  tableRows = [...rows].sort((a,b)=>b.date-a.date);
   tableTotals = {totalSale, totalCash, totalTf, totalCost, totalProfit, margin};
   curPage = 1;
   drawTable();
@@ -561,7 +561,7 @@ function drawTable(){
     prev = p;
   });
   h += `<button ${curPage===totalPages?'disabled':''} onclick="gotoPage(${curPage+1})">ถัดไป ›</button>`;
-  h += `<span class="pinfo">แสดงวันที่ ${start+1}–${start+pageRows.length} จาก ${rows.length} วัน</span>`;
+  h += `<span class="pinfo">แสดงข้อมูลลำดับที่ ${start+1}–${start+pageRows.length} จากทั้งหมด ${rows.length}</span>`;
   pager.innerHTML = h;
 }
 
