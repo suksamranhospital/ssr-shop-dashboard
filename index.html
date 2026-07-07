@@ -112,6 +112,19 @@
   tfoot td{font-weight:700;background:#F0F5F3;border-top:2px solid var(--navy)}
   .pos{color:var(--cash)} .neg{color:var(--cost)}
 
+  /* ===== pagination ===== */
+  .pager{display:flex;gap:6px;justify-content:center;align-items:center;margin-top:14px;flex-wrap:wrap}
+  .pager button{
+    min-width:36px;height:34px;padding:0 10px;border:1px solid var(--line);border-radius:8px;
+    background:#fff;color:var(--ink-soft);font-family:inherit;font-size:.85rem;cursor:pointer;
+    transition:all .15s;
+  }
+  .pager button:hover:not(:disabled){border-color:var(--navy);color:var(--navy)}
+  .pager button.cur{background:var(--navy);border-color:var(--navy);color:#fff;font-weight:600}
+  .pager button:disabled{opacity:.4;cursor:default}
+  .pager .pinfo{font-size:.8rem;color:var(--ink-soft);margin:0 6px}
+  @media print{.pager{display:none}}
+
   /* ===== states ===== */
   #stateBox{margin:60px auto;max-width:560px;text-align:center;color:var(--ink-soft)}
   #stateBox .spin{
@@ -215,6 +228,7 @@
           <tfoot></tfoot>
         </table>
       </div>
+      <div class="pager" id="pager"></div>
     </div>
   </div>
 </main>
@@ -382,6 +396,7 @@ function render(){
     charts = {};
     document.querySelector('#tbl tbody').innerHTML='';
     document.querySelector('#tbl tfoot').innerHTML='';
+    document.getElementById('pager').innerHTML='';
     return;
   }
 
@@ -474,8 +489,8 @@ function render(){
     data:{
       labels: months.map(o=>`${THMONTH[o.m]} ${(o.y+543)%100}`),
       datasets:[
-        {label:'ต้นทุน', data:months.map(o=>o.cost), backgroundColor:'rgba(184,92,92,.55)', borderRadius:5},
-        {label:'กำไร', data:months.map(o=>o.profit), backgroundColor:'#D98E04', borderRadius:5}
+        {label:'ต้นทุน', data:months.map(o=>o.cost), backgroundColor:'#9A7BC8', borderRadius:5},
+        {label:'กำไร', data:months.map(o=>o.profit), backgroundColor:'#0E8A7B', borderRadius:5}
       ]
     },
     options:{
@@ -492,9 +507,31 @@ function render(){
     }
   });
 
-  // ---- table ----
-  const tb = document.querySelector('#tbl tbody');
-  tb.innerHTML = rows.map(r=>{
+  // ---- table (แบ่งหน้า หน้าละ 15 วัน) ----
+  tableRows = rows;
+  tableTotals = {totalSale, totalCash, totalTf, totalCost, totalProfit, margin};
+  curPage = 1;
+  drawTable();
+}
+
+/* ---------- ตารางแบบแบ่งหน้า ---------- */
+const PAGE_SIZE = 15;
+let tableRows = [], tableTotals = null, curPage = 1;
+
+function gotoPage(p){
+  curPage = p;
+  drawTable();
+  document.getElementById('tbl').scrollIntoView({behavior:'smooth', block:'nearest'});
+}
+
+function drawTable(){
+  const rows = tableRows, t = tableTotals;
+  const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+  if(curPage > totalPages) curPage = totalPages;
+  const start = (curPage-1)*PAGE_SIZE;
+  const pageRows = rows.slice(start, start+PAGE_SIZE);
+
+  document.querySelector('#tbl tbody').innerHTML = pageRows.map(r=>{
     const m = r.sale>0 ? (r.profit/r.sale*100).toFixed(1)+'%' : '—';
     return `<tr>
       <td>${thDateFull(r.date)}</td>
@@ -505,10 +542,27 @@ function render(){
       <td class="${r.profit>=0?'pos':'neg'}">${THB(r.profit)}</td>
       <td>${m}</td></tr>`;
   }).join('');
+
   document.querySelector('#tbl tfoot').innerHTML = `<tr>
-    <td>รวม ${rows.length} วัน</td>
-    <td>${THB(totalSale)}</td><td>${THB(totalCash)}</td><td>${THB(totalTf)}</td>
-    <td>${THB(totalCost)}</td><td>${THB(totalProfit)}</td><td>${margin.toFixed(1)}%</td></tr>`;
+    <td>รวมทั้งช่วง ${rows.length} วัน</td>
+    <td>${THB(t.totalSale)}</td><td>${THB(t.totalCash)}</td><td>${THB(t.totalTf)}</td>
+    <td>${THB(t.totalCost)}</td><td>${THB(t.totalProfit)}</td><td>${t.margin.toFixed(1)}%</td></tr>`;
+
+  // ปุ่มเลือกหน้า
+  const pager = document.getElementById('pager');
+  if(totalPages <= 1){ pager.innerHTML = ''; return; }
+  let h = `<button ${curPage===1?'disabled':''} onclick="gotoPage(${curPage-1})">‹ ก่อนหน้า</button>`;
+  // แสดงเลขหน้าแบบย่อ: 1 … รอบหน้าปัจจุบัน … หน้าสุดท้าย
+  const pages = new Set([1, totalPages, curPage-1, curPage, curPage+1]);
+  let prev = 0;
+  [...pages].filter(p=>p>=1 && p<=totalPages).sort((a,b)=>a-b).forEach(p=>{
+    if(p - prev > 1) h += `<span class="pinfo">…</span>`;
+    h += `<button class="${p===curPage?'cur':''}" onclick="gotoPage(${p})">${p}</button>`;
+    prev = p;
+  });
+  h += `<button ${curPage===totalPages?'disabled':''} onclick="gotoPage(${curPage+1})">ถัดไป ›</button>`;
+  h += `<span class="pinfo">แสดงวันที่ ${start+1}–${start+pageRows.length} จาก ${rows.length} วัน</span>`;
+  pager.innerHTML = h;
 }
 
 loadData();
