@@ -17,10 +17,10 @@
     --line:#E1E9E6;
     --navy:#0F3B66;
     --teal:#0E8A7B;
-    --cash:#E9C46A;
+    --cash:#C9A227;
     --transfer:#2E7CD6;
-    --profit:#2A9D8F;
-    --cost:#F4A261;
+    --profit:#1E7A6E;
+    --cost:#D9822B;
     --radius:14px;
   }
   *{box-sizing:border-box;margin:0;padding:0}
@@ -234,7 +234,7 @@
 </main>
 
 <footer>
-  อัปเดตล่าสุดเมื่อเปิดหน้าหรือกด "โหลดข้อมูลใหม่" · จัดทำโดยกลุ่มงานสุขภาพดิจิทัล โรงพยาบาลสุขสำราญ
+  จัดทำโดยกลุ่มงานสุขภาพดิจิทัล โรงพยาบาลสุขสำราญ
 </footer>
 
 <script>
@@ -428,7 +428,7 @@ function render(){
   // ---- daily chart ----
   const dsets = [];
   if(payMode !== 'transfer')
-    dsets.push({label:'เงินสด', data:rows.map(r=>r.cash), backgroundColor:'#E9C46A', stack:'s', borderRadius:4});
+    dsets.push({label:'เงินสด', data:rows.map(r=>r.cash), backgroundColor:'#C9A227', stack:'s', borderRadius:4});
   if(payMode !== 'cash')
     dsets.push({label:'เงินโอน', data:rows.map(r=>r.transfer), backgroundColor:'#2E7CD6', stack:'s', borderRadius:4});
   charts.daily = new Chart(document.getElementById('chartDaily'), {
@@ -447,7 +447,7 @@ function render(){
   charts.pie = new Chart(document.getElementById('chartPie'), {
     type:'doughnut',
     data:{labels:['เงินสด','เงินโอน'],
-      datasets:[{data:[totalCash,totalTf], backgroundColor:['#E9C46A','#2E7CD6'], borderWidth:2, borderColor:'#fff'}]},
+      datasets:[{data:[totalCash,totalTf], backgroundColor:['#C9A227','#2E7CD6'], borderWidth:2, borderColor:'#fff'}]},
     options:{
       responsive:true, maintainAspectRatio:false, cutout:'62%',
       plugins:{ legend:{position:'bottom'},
@@ -463,9 +463,9 @@ function render(){
   charts.profit = new Chart(document.getElementById('chartProfit'), {
     type:'bar',
     data:{labels, datasets:[
-      {label:'ต้นทุน', data:rows.map(r=>r.cost), backgroundColor:'rgba(244,162,97,.75)', borderRadius:4},
-      {label:'กำไร', type:'line', data:rows.map(r=>r.profit), borderColor:'#2A9D8F',
-       backgroundColor:'#2A9D8F', tension:.3, pointRadius:3, borderWidth:2.5}
+      {label:'ต้นทุน', data:rows.map(r=>r.cost), backgroundColor:'rgba(217,130,43,.8)', borderRadius:4},
+      {label:'กำไร', type:'line', data:rows.map(r=>r.profit), borderColor:'#1E7A6E',
+       backgroundColor:'#1E7A6E', tension:.3, pointRadius:3, borderWidth:2.5}
     ]},
     options:{
       responsive:true, maintainAspectRatio:false,
@@ -489,8 +489,8 @@ function render(){
     data:{
       labels: months.map(o=>`${THMONTH[o.m]} ${(o.y+543)%100}`),
       datasets:[
-        {label:'ต้นทุน', data:months.map(o=>o.cost), backgroundColor:'#F4A261', borderRadius:5},
-        {label:'กำไร', data:months.map(o=>o.profit), backgroundColor:'#2A9D8F', borderRadius:5}
+        {label:'ต้นทุน', data:months.map(o=>o.cost), backgroundColor:'#D9822B', borderRadius:5},
+        {label:'กำไร', data:months.map(o=>o.profit), backgroundColor:'#1E7A6E', borderRadius:5}
       ]
     },
     options:{
