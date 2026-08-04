@@ -425,8 +425,7 @@ function render(){
   k += kpiCard(payMode==='all' ? 'ยอดขายรวม' : payMode==='cash' ? 'ยอดขาย (เงินสด)' : 'ยอดขาย (เงินโอน)',
                THB(shownSale)+' ฿','var(--navy)', `เฉลี่ย ${THB0(shownSale/rows.length)} ฿/วัน`);
   if(payMode==='all'){
-    k += kpiCard('เงินสด', THB(totalCash)+' ฿','var(--cash)', totalSale>0 ? (totalCash/totalSale*100).toFixed(1)+'% ของยอดขาย' : '');
-    k += kpiCard('เงินโอน', THB(totalTf)+' ฿','var(--transfer)', totalSale>0 ? (totalTf/totalSale*100).toFixed(1)+'% ของยอดขาย' : '');
+    // ไม่แสดงการ์ดเงินสด/เงินโอน — ดูสัดส่วนได้จากกราฟโดนัทและตารางด้านล่าง
   }
   k += kpiCard('ต้นทุน', THB(totalCost)+' ฿','var(--cost)');
   k += kpiCard('กำไรร้านค้า', THB(totalProfit)+' ฿','var(--profit)', `อัตรากำไร ${margin.toFixed(1)}%`);
