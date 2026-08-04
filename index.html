@@ -21,6 +21,8 @@
     --transfer:#2E7CD6;
     --profit:#1E7A6E;
     --cost:#D9822B;
+    --trike:#6A4C93;
+    --consign:#9B4D7A;
     --radius:14px;
   }
   *{box-sizing:border-box;margin:0;padding:0}
@@ -215,6 +217,10 @@
       <h2>กำไร เทียบ ต้นทุน รายเดือน</h2>
       <div class="chart-wrap sm"><canvas id="chartMonthly"></canvas></div>
     </div>
+    <div class="card" style="margin-bottom:14px">
+      <h2>องค์ประกอบกำไรรายเดือน (ร้านค้า · รถสามล้อ · ของฝากขาย)</h2>
+      <div class="chart-wrap sm"><canvas id="chartIncome"></canvas></div>
+    </div>
 
     <!-- Table -->
     <div class="card">
@@ -222,7 +228,7 @@
       <div style="overflow-x:auto">
         <table id="tbl">
           <thead>
-            <tr><th>วันที่</th><th>ยอดขาย (บาท)</th><th>เงินสด</th><th>เงินโอน</th><th>ต้นทุน</th><th>กำไร</th><th>อัตรากำไร</th></tr>
+            <tr><th>วันที่</th><th>ยอดขาย (บาท)</th><th>เงินสด</th><th>เงินโอน</th><th>ต้นทุน</th><th>กำไรร้านค้า</th><th>อัตรากำไร</th><th>รถสามล้อ</th><th>ของฝากขาย</th><th>กำไรรวม</th></tr>
           </thead>
           <tbody></tbody>
           <tfoot></tfoot>
@@ -304,7 +310,8 @@ function loadData(){
   fetch(CSV_URL + '&_=' + Date.now(), {cache:'no-store'})
     .then(r => { if(!r.ok) throw new Error('HTTP '+r.status); return r.text(); })
     .then(text => {
-      // อ้างตำแหน่งคอลัมน์คงที่: A=ประทับเวลา B=ยอดขายวันที่ C=ยอดขาย D=เงินสด E=เงินโอน F=กำไร G=ต้นทุน
+      // อ้างตำแหน่งคอลัมน์คงที่: A=ประทับเวลา B=ยอดขายวันที่ C=ยอดขาย D=เงินสด
+      // E=เงินโอน F=กำไร G=ต้นทุน I=รายได้จากรถสามล้อ J=กำไรจากของฝากขาย
       const parsed = Papa.parse(text, {header:false, skipEmptyLines:true});
       const rows = [];
       parsed.data.forEach((r, i) => {
@@ -318,6 +325,8 @@ function loadData(){
           transfer: parseNumber(r[4]),      // E: เงินโอน
           profit:   parseNumber(r[5]),      // F: กำไร
           cost:     parseNumber(r[6]),      // G: ต้นทุน
+          trike:    parseNumber(r[8]),      // I: รายได้จากรถสามล้อ
+          consign:  parseNumber(r[9]),      // J: กำไรจากของฝากขาย
         });
       });
       if(rows.length === 0) throw new Error('อ่านข้อมูลได้ 0 แถว — โปรดตรวจสอบหัวคอลัมน์ในชีต');
@@ -327,7 +336,8 @@ function loadData(){
       rows.forEach(r => {
         const k = isoLocal(r.date);
         if(!byDay.has(k)) byDay.set(k, {...r});
-        else { const o = byDay.get(k); o.sale+=r.sale; o.cash+=r.cash; o.transfer+=r.transfer; o.profit+=r.profit; o.cost+=r.cost; }
+        else { const o = byDay.get(k); o.sale+=r.sale; o.cash+=r.cash; o.transfer+=r.transfer;
+               o.profit+=r.profit; o.cost+=r.cost; o.trike+=r.trike; o.consign+=r.consign; }
       });
       allRows = [...byDay.values()].sort((a,b)=>a.date-b.date);
 
@@ -405,6 +415,8 @@ function render(){
   const sum = k => rows.reduce((a,r)=>a+r[k],0);
   const totalSale = sum('sale'), totalCash = sum('cash'), totalTf = sum('transfer');
   const totalProfit = sum('profit'), totalCost = sum('cost');
+  const totalTrike = sum('trike'), totalConsign = sum('consign');
+  const grandProfit = totalProfit + totalTrike + totalConsign;
   const shownSale = payMode==='cash' ? totalCash : payMode==='transfer' ? totalTf : totalSale;
   const margin = totalSale > 0 ? (totalProfit/totalSale*100) : 0;
 
@@ -417,7 +429,10 @@ function render(){
     k += kpiCard('เงินโอน', THB(totalTf)+' ฿','var(--transfer)', totalSale>0 ? (totalTf/totalSale*100).toFixed(1)+'% ของยอดขาย' : '');
   }
   k += kpiCard('ต้นทุน', THB(totalCost)+' ฿','var(--cost)');
-  k += kpiCard('กำไร', THB(totalProfit)+' ฿','var(--profit)', `อัตรากำไร ${margin.toFixed(1)}%`);
+  k += kpiCard('กำไรร้านค้า', THB(totalProfit)+' ฿','var(--profit)', `อัตรากำไร ${margin.toFixed(1)}%`);
+  k += kpiCard('รายได้จากรถสามล้อ', THB(totalTrike)+' ฿','var(--trike)');
+  k += kpiCard('กำไรจากของฝากขาย', THB(totalConsign)+' ฿','var(--consign)');
+  k += kpiCard('กำไรรวมทั้งสิ้น', THB(grandProfit)+' ฿','var(--navy)', 'ร้านค้า + สามล้อ + ฝากขาย');
   document.getElementById('kpiRow').innerHTML = k;
 
   const labels = rows.map(r=>thDate(r.date));
@@ -479,9 +494,10 @@ function render(){
   const byMonth = new Map();
   rows.forEach(r=>{
     const key = `${r.date.getFullYear()}-${String(r.date.getMonth()+1).padStart(2,'0')}`;
-    if(!byMonth.has(key)) byMonth.set(key, {y:r.date.getFullYear(), m:r.date.getMonth(), profit:0, cost:0, sale:0});
+    if(!byMonth.has(key)) byMonth.set(key, {y:r.date.getFullYear(), m:r.date.getMonth(), profit:0, cost:0, sale:0, trike:0, consign:0});
     const o = byMonth.get(key);
     o.profit += r.profit; o.cost += r.cost; o.sale += r.sale;
+    o.trike += r.trike; o.consign += r.consign;
   });
   const months = [...byMonth.entries()].sort((a,b)=>a[0].localeCompare(b[0])).map(e=>e[1]);
   charts.monthly = new Chart(document.getElementById('chartMonthly'), {
@@ -507,9 +523,36 @@ function render(){
     }
   });
 
+  // ---- monthly income composition ----
+  const mLabels = months.map(o=>`${THMONTH[o.m]} ${(o.y+543)%100}`);
+  charts.income = new Chart(document.getElementById('chartIncome'), {
+    type:'bar',
+    data:{
+      labels: mLabels,
+      datasets:[
+        {label:'กำไรร้านค้า', data:months.map(o=>o.profit), backgroundColor:'#1E7A6E', stack:'g', borderRadius:4},
+        {label:'รายได้จากรถสามล้อ', data:months.map(o=>o.trike), backgroundColor:'#6A4C93', stack:'g', borderRadius:4},
+        {label:'กำไรจากของฝากขาย', data:months.map(o=>o.consign), backgroundColor:'#9B4D7A', stack:'g', borderRadius:4}
+      ]
+    },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{position:'bottom'},
+        tooltip:{callbacks:{
+          label:c=>` ${c.dataset.label}: ${THB(c.parsed.y)} ฿`,
+          footer:items=>{
+            const o = months[items[0].dataIndex];
+            return `กำไรรวมทั้งสิ้น: ${THB(o.profit+o.trike+o.consign)} ฿`;
+          }
+        }} },
+      scales:{ x:{stacked:true, grid:{display:false}},
+               y:{stacked:true, ticks:{callback:v=>THB0(v)}} }
+    }
+  });
+
   // ---- table (แบ่งหน้า หน้าละ 15 วัน เรียงจากวันที่ล่าสุด) ----
   tableRows = [...rows].sort((a,b)=>b.date-a.date);
-  tableTotals = {totalSale, totalCash, totalTf, totalCost, totalProfit, margin};
+  tableTotals = {totalSale, totalCash, totalTf, totalCost, totalProfit, margin, totalTrike, totalConsign, grandProfit};
   curPage = 1;
   drawTable();
 }
@@ -540,13 +583,17 @@ function drawTable(){
       <td style="color:var(--transfer)">${THB(r.transfer)}</td>
       <td>${THB(r.cost)}</td>
       <td class="${r.profit>=0?'pos':'neg'}">${THB(r.profit)}</td>
-      <td>${m}</td></tr>`;
+      <td>${m}</td>
+      <td style="color:var(--trike)">${THB(r.trike)}</td>
+      <td style="color:var(--consign)">${THB(r.consign)}</td>
+      <td style="font-weight:600">${THB(r.profit + r.trike + r.consign)}</td></tr>`;
   }).join('');
 
   document.querySelector('#tbl tfoot').innerHTML = `<tr>
     <td>รวมทั้งช่วง ${rows.length} วัน</td>
     <td>${THB(t.totalSale)}</td><td>${THB(t.totalCash)}</td><td>${THB(t.totalTf)}</td>
-    <td>${THB(t.totalCost)}</td><td>${THB(t.totalProfit)}</td><td>${t.margin.toFixed(1)}%</td></tr>`;
+    <td>${THB(t.totalCost)}</td><td>${THB(t.totalProfit)}</td><td>${t.margin.toFixed(1)}%</td>
+    <td>${THB(t.totalTrike)}</td><td>${THB(t.totalConsign)}</td><td>${THB(t.grandProfit)}</td></tr>`;
 
   // ปุ่มเลือกหน้า
   const pager = document.getElementById('pager');
