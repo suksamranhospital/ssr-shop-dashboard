@@ -126,6 +126,10 @@
   #feedStatus span{margin-right:4px}
   .fs-ok{color:var(--profit)} .fs-bad{color:#C0392B;font-weight:600} .fs-off{color:var(--ink-soft)}
   .muted{color:var(--ink-soft)}
+  .ledger-box{overflow:auto;max-height:430px}
+  .ledger-box thead th{position:sticky;top:0;z-index:1}
+  .ledger-box td.src{text-align:left;font-size:.78rem;color:var(--ink-soft)}
+  .day-sale{color:var(--profit)} .day-pay{color:var(--cost)}
 
   /* ===== pagination ===== */
   .pager{display:flex;gap:6px;justify-content:center;align-items:center;margin-top:14px;flex-wrap:wrap}
@@ -227,6 +231,26 @@
           </div>
           <p class="note" id="balNote"></p>
         </div>
+      </div>
+
+      <div class="card" style="margin-bottom:14px">
+        <h2>สมุดเงินสดรายวัน — เดบิต / เครดิต / ยอดคงเหลือ</h2>
+        <div class="chart-wrap"><canvas id="chartCashbook"></canvas></div>
+      </div>
+
+      <div class="card" style="margin-bottom:14px">
+        <h2>ตารางกระทบยอดรายวัน</h2>
+        <div class="ledger-box">
+          <table id="tblBook">
+            <thead>
+              <tr><th>วันที่</th><th>ยอดยกมา</th>
+                  <th>เดบิต (รับ)</th><th>เครดิต (จ่าย)</th>
+                  <th>ยอดคงเหลือ</th><th>ที่มาของรายการ</th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <p class="note" id="bookNote"></p>
       </div>
     </section>
 
@@ -840,6 +864,8 @@ function renderBalance(viewRows){
     runCash -= dCash; runBank -= dBank;
   });
 
+  renderCashbook(viewRows, cutEnd);
+
   if(charts.bal) charts.bal.destroy();
   charts.bal = new Chart(document.getElementById('chartBalance'), {
     type:'line',
@@ -859,6 +885,116 @@ function renderBalance(viewRows){
       scales:{ x:{grid:{display:false}}, y:{ticks:{callback:v=>THB0(v)}} }
     }
   });
+}
+
+/* ====================================================
+   สมุดเงินสดรายวัน — เดบิต / เครดิต / ยอดคงเหลือ
+   รวมทุกวันที่มีความเคลื่อนไหว ไม่ใช่เฉพาะวันที่มียอดขาย
+   (วันที่จ่ายเงินแต่ไม่มีการขาย ก็ต้องปรากฏในสมุด)
+   ยอดยกมาคำนวณสะสมตั้งแต่วันแรกของข้อมูลเสมอ
+   ==================================================== */
+function renderCashbook(viewRows, cutEnd){
+  // ---- 1. รวบรวมความเคลื่อนไหวของทุกวัน ----
+  const day = {};
+  const touch = d => {
+    const k = isoLocal(d);
+    if(!day[k]) day[k] = {date:new Date(d), debit:0, credit:0, srcSale:0, srcOther:0, srcPay:0};
+    return day[k];
+  };
+
+  allRows.forEach(r => {
+    const received = r.cash + r.transfer + r.trike + r.consign;
+    if(!received) return;
+    const o = touch(r.date);
+    o.debit += received; o.srcSale += received;
+  });
+
+  incomeRows.forEach(x => {
+    if(!x.date) return;
+    // ฝาก/ถอน เป็นการย้ายเงินระหว่างกระเป๋า ไม่ใช่เงินเข้า-ออกกิจการ
+    if(x.type.indexOf('ฝากเงิน') > -1 || x.type.indexOf('ถอนเงิน') > -1) return;
+    const o = touch(x.date);
+    o.debit += x.amount; o.srcOther += x.amount;
+  });
+
+  expenseRows.forEach(x => {
+    if(!x.payDate) return;
+    const o = touch(x.payDate);
+    o.credit += x.amount; o.srcPay += x.amount;
+  });
+
+  // ---- 2. ไล่ยอดคงเหลือสะสมจากวันแรกสุดของข้อมูล ----
+  const all = Object.values(day).sort((a,b)=>a.date-b.date);
+  let run = 0;
+  all.forEach(o => { o.open = run; run += o.debit - o.credit; o.close = run; });
+
+  // ---- 3. แสดงเฉพาะช่วงที่เลือก ----
+  const from = parseInputDate(document.getElementById('dateFrom').value);
+  const show = all.filter(o => o.date >= from && o.date <= cutEnd);
+  if(show.length === 0){
+    document.querySelector('#tblBook tbody').innerHTML =
+      '<tr><td colspan="6" class="muted">ไม่มีความเคลื่อนไหวในช่วงที่เลือก</td></tr>';
+    document.getElementById('bookNote').textContent = '';
+    if(charts.book){ charts.book.destroy(); charts.book = null; }
+    return;
+  }
+
+  // ---- 4. กราฟ: เดบิตขึ้น เครดิตลง เส้นยอดคงเหลือ ----
+  if(charts.book) charts.book.destroy();
+  charts.book = new Chart(document.getElementById('chartCashbook'), {
+    type:'bar',
+    data:{
+      labels: show.map(o=>thDate(o.date)),
+      datasets:[
+        {label:'เดบิต (เงินรับ)', data:show.map(o=>o.debit),
+         backgroundColor:'#1E7A6E', borderRadius:4, order:2},
+        {label:'เครดิต (เงินจ่าย)', data:show.map(o=>-o.credit),
+         backgroundColor:'#D9822B', borderRadius:4, order:2},
+        {label:'ยอดคงเหลือสะสม', data:show.map(o=>o.close), type:'line',
+         borderColor:'#0F3B66', backgroundColor:'#0F3B66', borderWidth:2.5,
+         tension:.25, pointRadius:3, order:1}
+      ]
+    },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{position:'bottom'},
+        tooltip:{callbacks:{
+          label:c=>' ' + c.dataset.label + ': ' + THB(Math.abs(c.parsed.y)) + ' ฿',
+          footer:items=>{
+            const o = show[items[0].dataIndex];
+            return 'ยอดยกมา ' + THB(o.open) + ' → ยอดยกไป ' + THB(o.close) + ' ฿';
+          }
+        }} },
+      scales:{ x:{grid:{display:false}},
+               y:{ticks:{callback:v=>THB0(v)},
+                  grid:{color:c=>c.tick.value===0 ? '#9DB8C9' : 'rgba(0,0,0,.05)'}} }
+    }
+  });
+
+  // ---- 5. ตารางกระทบยอด (เรียงเก่า -> ใหม่ เหมือนสมุดบัญชี) ----
+  document.querySelector('#tblBook tbody').innerHTML = show.map(o=>{
+    const src = [];
+    if(o.srcSale)  src.push('<span class="day-sale">ขาย ' + THB0(o.srcSale) + '</span>');
+    if(o.srcOther) src.push('รับอื่น ' + THB0(o.srcOther));
+    if(o.srcPay)   src.push('<span class="day-pay">จ่าย ' + THB0(o.srcPay) + '</span>');
+    return '<tr>' +
+      '<td>' + thDateFull(o.date) + '</td>' +
+      '<td class="muted">' + THB(o.open) + '</td>' +
+      '<td class="pos">' + (o.debit ? THB(o.debit) : '<span class="muted">—</span>') + '</td>' +
+      '<td class="neg">' + (o.credit ? THB(o.credit) : '<span class="muted">—</span>') + '</td>' +
+      '<td style="font-weight:700">' + THB(o.close) + '</td>' +
+      '<td class="src">' + src.join(' · ') + '</td></tr>';
+  }).join('');
+
+  const first = show[0], last = show[show.length-1];
+  const noSale = show.filter(o => !o.srcSale && o.credit).length;
+  document.getElementById('bookNote').innerHTML =
+    'ยอดยกมาวันที่ ' + thDateFull(first.date) + ' คือ <strong>' + THB(first.open) + ' ฿</strong> · ' +
+    'ยอดยกไปวันที่ ' + thDateFull(last.date) + ' คือ <strong>' + THB(last.close) + ' ฿</strong> — ' +
+    'นำไปเทียบกับช่อง "ยอดยกไป" ในสมุดบัญชีได้โดยตรง ถ้าไม่ตรงให้ดูคอลัมน์ที่มาของรายการว่าวันไหนขาดหรือเกิน' +
+    (noSale ? '<br>มี ' + noSale + ' วันที่มีการจ่ายเงินแต่ไม่มีรายงานการขาย — ปกติได้ถ้าร้านปิด แต่ควรตรวจว่าพนักงานลืมส่งฟอร์มหรือไม่' : '') +
+    '<br>เดบิต = ยอดขาย + รายได้รถสามล้อ + กำไรของฝากขาย + รายรับอื่น · เครดิต = รายจ่ายจริงทั้งหมด ' +
+    '(รายการฝาก/ถอนระหว่างเงินสดกับบัญชีไม่นับ เพราะไม่ใช่เงินเข้า-ออกกิจการ)';
 }
 
 /* ====================================================
