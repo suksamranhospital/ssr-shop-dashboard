@@ -1,888 +1,289 @@
-<!DOCTYPE html>
-<html lang="th">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>รายงานยอดขายร้านค้าสวัสดิการ · โรงพยาบาลสุขสำราญ</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=Bai+Jamjuree:wght@500;600;700&display=swap" rel="stylesheet">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
-<style>
-  :root{
-    --bg:#F5F8F7;
-    --card:#FFFFFF;
-    --ink:#12283A;
-    --ink-soft:#5A7184;
-    --line:#E1E9E6;
-    --navy:#0F3B66;
-    --teal:#0E8A7B;
-    --cash:#C9A227;
-    --transfer:#2E7CD6;
-    --profit:#1E7A6E;
-    --cost:#D9822B;
-    --trike:#6A4C93;
-    --consign:#9B4D7A;
-    --radius:14px;
-  }
-  *{box-sizing:border-box;margin:0;padding:0}
-  body{
-    font-family:'IBM Plex Sans Thai',sans-serif;
-    background:var(--bg);color:var(--ink);
-    padding:0 0 48px;
-  }
-  h1,h2,h3,.num{font-family:'Bai Jamjuree','IBM Plex Sans Thai',sans-serif}
+// ====================================================
+//  Apps Script — สร้างชีตรายจ่ายจริง ร้านค้าสวัสดิการ รพ.สุขสำราญ
+//  สร้าง 4 ชีต พร้อมหัวตาราง dropdown และการจัดรูปแบบ
+//
+//  วิธีใช้:
+//  1. เปิด Google Sheet ที่เก็บคำตอบยอดขาย (ไฟล์เดียวกัน)
+//  2. ส่วนขยาย → Apps Script → วางโค้ดนี้ → บันทึก
+//  3. เลือกฟังก์ชัน setupExpenseSheets → กด Run → อนุญาตสิทธิ์
+//  4. เสร็จแล้วจะได้ 4 ชีตใหม่ พร้อมใช้งานทันที
+//
+//  ★ รันซ้ำได้ ไม่ลบข้อมูลเดิม (ถ้าชีตมีอยู่แล้วจะข้ามการสร้าง
+//    แต่จะอัปเดต dropdown และรูปแบบให้ใหม่)
+// ====================================================
 
-  /* ===== Header ===== */
-  header{
-    background:linear-gradient(135deg,var(--navy) 0%,#155A8A 70%,var(--teal) 130%);
-    color:#fff;padding:26px 28px 22px;
-  }
-  .head-inner{max-width:1180px;margin:0 auto;display:flex;flex-wrap:wrap;gap:16px;align-items:flex-end;justify-content:space-between}
-  .head-eyebrow{font-size:.8rem;letter-spacing:.12em;opacity:.85;text-transform:uppercase;margin-bottom:6px}
-  header h1{font-size:1.6rem;font-weight:700;line-height:1.25}
-  #periodLabel{font-size:.95rem;opacity:.9;margin-top:6px}
-  .head-actions{display:flex;gap:10px}
-  .btn{
-    border:1px solid rgba(255,255,255,.45);background:rgba(255,255,255,.12);
-    color:#fff;padding:8px 16px;border-radius:9px;font-family:inherit;
-    font-size:.9rem;cursor:pointer;transition:background .15s;
-  }
-  .btn:hover{background:rgba(255,255,255,.25)}
-  .btn:focus-visible{outline:2px solid #fff;outline-offset:2px}
+const SH_EXPENSE = 'รายจ่ายจริง';
+const SH_CATEGORY = 'หมวดหมู่';
+const SH_STOCK = 'สต็อกสิ้นเดือน';
+const SH_INCOME = 'รายรับอื่น';
 
-  main{max-width:1180px;margin:0 auto;padding:22px 20px 0}
+// ประเภทรายรับอื่น — รายการที่ไม่ผ่านฟอร์มพนักงานขาย
+// 'ฝากเงินเข้าบัญชี' และ 'ถอนเงินสด' คือการย้ายเงินระหว่างกระเป๋า
+// (เงินสด ↔ บัญชี) ยอดรวมไม่เปลี่ยน ใช้เมื่อมีการนำเงินไปฝาก/ถอน
+const INCOME_TYPES = [
+  'เงินทุนตั้งต้น', 'เงินยืม', 'เงินบริจาค', 'รายได้อื่น',
+  'ฝากเงินเข้าบัญชี', 'ถอนเงินสด'
+];
 
-  /* ===== Filters ===== */
-  .filters{
-    background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
-    padding:16px 18px;display:flex;flex-wrap:wrap;gap:18px;align-items:flex-end;
-    box-shadow:0 1px 3px rgba(15,59,102,.06);
-  }
-  .f-group{display:flex;flex-direction:column;gap:6px}
-  .f-label{font-size:.78rem;font-weight:600;color:var(--ink-soft)}
-  .date-row{display:flex;align-items:center;gap:8px}
-  input[type=date]{
-    font-family:inherit;font-size:.9rem;padding:7px 10px;
-    border:1px solid var(--line);border-radius:8px;color:var(--ink);background:#fff;
-  }
-  .chips{display:flex;gap:6px;flex-wrap:wrap}
-  .chip{
-    padding:7px 16px;border-radius:999px;border:1px solid var(--line);
-    background:#fff;color:var(--ink-soft);font-family:inherit;font-size:.87rem;
-    cursor:pointer;transition:all .15s;font-weight:500;
-  }
-  .chip:focus-visible{outline:2px solid var(--navy);outline-offset:2px}
-  .chip.active{background:var(--navy);border-color:var(--navy);color:#fff}
-  .chip.c-cash.active{background:var(--cash);border-color:var(--cash);color:var(--ink)}
-  .chip.c-tf.active{background:var(--transfer);border-color:var(--transfer)}
-  .chip.preset{padding:6px 12px;font-size:.8rem}
+// หมวดหมู่ตั้งต้น [ชื่อหมวดหมู่, ประเภท, สถานะ, ลำดับ]
+const DEFAULT_CATEGORIES = [
+  ['ค่าซื้อของเข้าร้าน',  'ต้นทุนสินค้า',          'ใช้งาน', 1],
+  ['ค่าจ้างพนักงาน',      'ค่าใช้จ่ายดำเนินงาน', 'ใช้งาน', 2],
+  ['ค่าไฟฟ้า',            'ค่าใช้จ่ายดำเนินงาน', 'ใช้งาน', 3],
+  ['ค่าน้ำประปา',         'ค่าใช้จ่ายดำเนินงาน', 'ใช้งาน', 4],
+  ['ค่าวัสดุอื่นๆ',        'ค่าใช้จ่ายดำเนินงาน', 'ใช้งาน', 5],
+  ['ค่าถุง/บรรจุภัณฑ์',   'ค่าใช้จ่ายดำเนินงาน', 'ใช้งาน', 6],
+  ['ค่าซ่อมบำรุง',        'ค่าใช้จ่ายดำเนินงาน', 'ใช้งาน', 7],
+  ['ค่ามิเตอร์ไฟฟ้า',      'ค่าใช้จ่ายดำเนินงาน', 'ใช้งาน', 8],
+  ['อาหารว่างทำบุญ',     'ค่าใช้จ่ายดำเนินงาน', 'ใช้งาน', 9],
+  ['ค่าตอบแทนทำบุญ',    'ค่าใช้จ่ายดำเนินงาน', 'ใช้งาน', 10],
+  ['เงินคืน/เงินยืมคืน',   'ค่าใช้จ่ายดำเนินงาน', 'ใช้งาน', 11]
+];
 
-  /* ===== KPI ===== */
-  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:14px;margin:20px 0}
-  .kpi{
-    background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
-    padding:16px 18px;position:relative;overflow:hidden;
-    box-shadow:0 1px 3px rgba(15,59,102,.06);
-  }
-  .kpi::before{content:'';position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--kc,var(--navy))}
-  .kpi .k-label{font-size:.8rem;color:var(--ink-soft);font-weight:500}
-  .kpi .k-value{font-size:1.55rem;font-weight:700;margin-top:4px;font-family:'Bai Jamjuree',sans-serif;color:var(--kc,var(--ink))}
-  .kpi .k-sub{font-size:.75rem;color:var(--ink-soft);margin-top:3px}
+const HEADER_BG = '#0F3B66';
 
-  /* ===== Cards / charts ===== */
-  .grid2{display:grid;grid-template-columns:2fr 1fr;gap:14px;margin-bottom:14px}
-  @media(max-width:860px){.grid2{grid-template-columns:1fr}}
-  .card{
-    background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
-    padding:18px;box-shadow:0 1px 3px rgba(15,59,102,.06);
-  }
-  .card h2{font-size:1.02rem;font-weight:600;margin-bottom:12px;display:flex;align-items:center;gap:8px}
-  .card h2::before{content:'';width:8px;height:8px;border-radius:2px;background:var(--teal)}
-  .chart-wrap{position:relative;height:320px}
-  .chart-wrap.sm{height:280px}
+// ====================================================
+//  ฟังก์ชันหลัก — รันครั้งเดียว
+// ====================================================
+function setupExpenseSheets() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
 
-  /* ===== Table ===== */
-  table{width:100%;border-collapse:collapse;font-size:.88rem}
-  th{
-    text-align:right;padding:9px 12px;background:#F0F5F3;color:var(--ink-soft);
-    font-weight:600;font-size:.8rem;border-bottom:2px solid var(--line);white-space:nowrap;
-  }
-  th:first-child,td:first-child{text-align:left}
-  td{padding:8px 12px;text-align:right;border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums}
-  tbody tr:hover{background:#F7FBF9}
-  tfoot td{font-weight:700;background:#F0F5F3;border-top:2px solid var(--navy)}
-  .pos{color:var(--profit)} .neg{color:#C0392B}
+  createCategorySheet(ss);
+  createExpenseSheet(ss);
+  createIncomeSheet(ss);
+  createStockSheet(ss);
 
-  /* ===== section divider ===== */
-  .divider{display:flex;align-items:center;gap:12px;margin:26px 0 14px}
-  .divider::before,.divider::after{content:'';flex:1;height:1px;background:var(--line)}
-  .divider span{
-    font-family:'Bai Jamjuree',sans-serif;font-weight:600;font-size:.95rem;
-    color:var(--navy);white-space:nowrap;
-  }
-  .note{font-size:.78rem;color:var(--ink-soft);margin-top:10px;line-height:1.7}
-  .muted{color:var(--ink-soft)}
+  const msg =
+    'สร้างชีตเรียบร้อย\n\n' +
+    '1. ' + SH_CATEGORY + ' — เพิ่ม/แก้หมวดหมู่ได้ที่นี่\n' +
+    '2. ' + SH_EXPENSE + ' — บันทึกรายจ่ายประจำวัน\n' +
+    '3. ' + SH_INCOME + ' — บันทึกเงินทุน/รายรับที่ไม่ผ่านฟอร์มขาย\n' +
+    '4. ' + SH_STOCK + ' — บันทึกมูลค่าสต็อกสิ้นเดือน\n\n' +
+    'ขั้นต่อไป: เผยแพร่ชีต ' + SH_EXPENSE + ', ' + SH_INCOME + ' และ ' +
+    SH_STOCK + ' เป็น CSV เพื่อเชื่อมกับ Dashboard';
 
-  /* ===== pagination ===== */
-  .pager{display:flex;gap:6px;justify-content:center;align-items:center;margin-top:14px;flex-wrap:wrap}
-  .pager button{
-    min-width:36px;height:34px;padding:0 10px;border:1px solid var(--line);border-radius:8px;
-    background:#fff;color:var(--ink-soft);font-family:inherit;font-size:.85rem;cursor:pointer;
-    transition:all .15s;
-  }
-  .pager button:hover:not(:disabled){border-color:var(--navy);color:var(--navy)}
-  .pager button.cur{background:var(--navy);border-color:var(--navy);color:#fff;font-weight:600}
-  .pager button:disabled{opacity:.4;cursor:default}
-  .pager .pinfo{font-size:.8rem;color:var(--ink-soft);margin:0 6px}
-  @media print{.pager{display:none}}
-
-  /* ===== states ===== */
-  #stateBox{margin:60px auto;max-width:560px;text-align:center;color:var(--ink-soft)}
-  #stateBox .spin{
-    width:38px;height:38px;border:4px solid var(--line);border-top-color:var(--teal);
-    border-radius:50%;margin:0 auto 16px;animation:sp 1s linear infinite;
-  }
-  @keyframes sp{to{transform:rotate(360deg)}}
-  .err{background:#FDF3F2;border:1px solid #EAC7C3;color:#8A3B33;border-radius:12px;padding:18px;text-align:left;font-size:.9rem;line-height:1.7}
-  footer{max-width:1180px;margin:26px auto 0;padding:0 20px;font-size:.76rem;color:var(--ink-soft)}
-
-  @media(prefers-reduced-motion:reduce){.spin{animation:none}}
-  @media print{
-    header{-webkit-print-color-adjust:exact;print-color-adjust:exact}
-    .filters,.head-actions{display:none}
-    body{background:#fff}
-    .card,.kpi{box-shadow:none;break-inside:avoid}
-  }
-</style>
-</head>
-<body>
-
-<header>
-  <div class="head-inner">
-    <div>
-      <div class="head-eyebrow">Welfare Shop · Suksumran Hospital</div>
-      <h1>รายงานยอดขายร้านค้าสวัสดิการ โรงพยาบาลสุขสำราญ</h1>
-      <div id="periodLabel">กำลังโหลดข้อมูล…</div>
-    </div>
-    <div class="head-actions">
-      <button class="btn" onclick="loadData()">⟳ โหลดข้อมูลใหม่</button>
-      <button class="btn" onclick="window.print()">🖨 พิมพ์รายงาน</button>
-    </div>
-  </div>
-</header>
-
-<main>
-  <div id="stateBox"><div class="spin"></div>กำลังดึงข้อมูลจาก Google Sheets…</div>
-
-  <div id="dash" style="display:none">
-    <!-- Filters -->
-    <section class="filters" aria-label="ตัวกรองข้อมูล">
-      <div class="f-group">
-        <span class="f-label">ช่วงวันที่ (ยอดขายวันที่)</span>
-        <div class="date-row">
-          <input type="date" id="dateFrom" onchange="render()">
-          <span>ถึง</span>
-          <input type="date" id="dateTo" onchange="render()">
-        </div>
-      </div>
-      <div class="f-group">
-        <span class="f-label">ช่วงเวลาด่วน</span>
-        <div class="chips">
-          <button class="chip preset" onclick="preset(7)">7 วันล่าสุด</button>
-          <button class="chip preset" onclick="preset(30)">30 วันล่าสุด</button>
-          <button class="chip preset" onclick="preset('month')">เดือนนี้</button>
-          <button class="chip preset" onclick="preset('all')">ทั้งหมด</button>
-        </div>
-      </div>
-      <div class="f-group">
-        <span class="f-label">ประเภทการชำระเงิน</span>
-        <div class="chips" id="payChips">
-          <button class="chip active" data-pay="all" onclick="setPay('all',this)">ทั้งหมด</button>
-          <button class="chip c-cash" data-pay="cash" onclick="setPay('cash',this)">เงินสด</button>
-          <button class="chip c-tf" data-pay="transfer" onclick="setPay('transfer',this)">เงินโอน</button>
-        </div>
-      </div>
-    </section>
-
-    <!-- KPI -->
-    <section class="kpis" id="kpiRow"></section>
-
-    <!-- Charts -->
-    <div class="grid2">
-      <div class="card">
-        <h2>ยอดขายรายวัน</h2>
-        <div class="chart-wrap"><canvas id="chartDaily"></canvas></div>
-      </div>
-      <div class="card">
-        <h2>สัดส่วนเงินสด / เงินโอน</h2>
-        <div class="chart-wrap sm"><canvas id="chartPie"></canvas></div>
-      </div>
-    </div>
-    <div class="card" style="margin-bottom:14px">
-      <h2>กำไร เทียบ ต้นทุน รายวัน</h2>
-      <div class="chart-wrap sm"><canvas id="chartProfit"></canvas></div>
-    </div>
-    <div class="card" style="margin-bottom:14px">
-      <h2>กำไร เทียบ ต้นทุน รายเดือน</h2>
-      <div class="chart-wrap sm"><canvas id="chartMonthly"></canvas></div>
-    </div>
-    <div class="card" style="margin-bottom:14px">
-      <h2>องค์ประกอบกำไรรายเดือน (ร้านค้า · รถสามล้อ · ของฝากขาย)</h2>
-      <div class="chart-wrap sm"><canvas id="chartIncome"></canvas></div>
-    </div>
-
-    <!-- ต้นทุน/กำไรที่แท้จริง -->
-    <section id="realSection" style="display:none">
-      <div class="divider"><span>ต้นทุนและกำไรที่แท้จริง (คิดเป็นรายเดือน)</span></div>
-
-      <section class="kpis" id="realKpiRow"></section>
-
-      <div class="grid2">
-        <div class="card">
-          <h2>เปรียบเทียบกำไร 3 เกณฑ์ รายเดือน</h2>
-          <div class="chart-wrap sm"><canvas id="chartRealProfit"></canvas></div>
-        </div>
-        <div class="card">
-          <h2>สัดส่วนรายจ่ายตามหมวดหมู่</h2>
-          <div class="chart-wrap sm"><canvas id="chartCategory"></canvas></div>
-        </div>
-      </div>
-
-      <div class="card" style="margin-bottom:14px">
-        <h2>สรุปรายเดือน — ต้นทุนและกำไรที่แท้จริง</h2>
-        <div style="overflow-x:auto">
-          <table id="tblReal">
-            <thead>
-              <tr>
-                <th>เดือน</th><th>รายได้รวม</th>
-                <th>กำไรตามระบบ</th>
-                <th>ซื้อของเข้าร้าน</th><th>ค่าใช้จ่ายดำเนินงาน</th><th>รายจ่ายรวม</th>
-                <th>กำไรสุทธิ (เงินสด)</th>
-                <th>ต้นทุนขายจริง</th><th>กำไรสุทธิ (นับสต็อก)</th>
-              </tr>
-            </thead>
-            <tbody></tbody>
-            <tfoot></tfoot>
-          </table>
-        </div>
-        <p class="note" id="realNote"></p>
-      </div>
-    </section>
-
-    <!-- Table -->
-    <div class="card">
-      <h2>รายละเอียดรายวัน</h2>
-      <div style="overflow-x:auto">
-        <table id="tbl">
-          <thead>
-            <tr><th>วันที่</th><th>ยอดขาย (บาท)</th><th>เงินสด</th><th>เงินโอน</th><th>ต้นทุน</th><th>กำไรร้านค้า</th><th>อัตรากำไร</th><th>รถสามล้อ</th><th>ของฝากขาย</th><th>กำไรรวม</th></tr>
-          </thead>
-          <tbody></tbody>
-          <tfoot></tfoot>
-        </table>
-      </div>
-      <div class="pager" id="pager"></div>
-    </div>
-  </div>
-</main>
-
-<footer>
-  จัดทำโดยกลุ่มงานสุขภาพดิจิทัล โรงพยาบาลสุขสำราญ
-</footer>
-
-<script>
-const CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQTiKkgS4-1quVWsJbvjKy-a6xHqAO6ulVIKWtlKK60FoW0cMgqZIvuuprzQL_eIg0Oa4QB-MLU9cYG/pub?output=csv";
-
-// ★ ใส่ลิงก์ CSV ของชีต "รายจ่ายจริง" และ "สต็อกสิ้นเดือน" ที่นี่
-//   (ไฟล์ → แชร์ → เผยแพร่ไปยังเว็บ → เลือกชีต → CSV แล้วคัดลอกลิงก์มาวาง)
-//   ถ้ายังไม่ใส่ dashboard ส่วนอื่นยังทำงานปกติ แต่ส่วน "กำไรที่แท้จริง" จะยังไม่แสดง
-const EXPENSE_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQTiKkgS4-1quVWsJbvjKy-a6xHqAO6ulVIKWtlKK60FoW0cMgqZIvuuprzQL_eIg0Oa4QB-MLU9cYG/pub?gid=1050453862&single=true&output=csv";
-const STOCK_CSV_URL   = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQTiKkgS4-1quVWsJbvjKy-a6xHqAO6ulVIKWtlKK60FoW0cMgqZIvuuprzQL_eIg0Oa4QB-MLU9cYG/pub?gid=1748650753&single=true&output=csv";
-
-let allRows = [];          // {date:Date, sale, cash, transfer, profit, cost, trike, consign}
-let expenseRows = [];      // {payDate, month, category, item, amount, type, method}
-let stockMap = {};         // { 'yyyy-MM': มูลค่าสต็อกคงเหลือ }
-let payMode = 'all';
-let charts = {};
-
-const THB = n => n.toLocaleString('th-TH',{minimumFractionDigits:2,maximumFractionDigits:2});
-const THB0 = n => n.toLocaleString('th-TH',{maximumFractionDigits:0});
-const THMONTH = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
-const thDate = d => `${d.getDate()} ${THMONTH[d.getMonth()]} ${(d.getFullYear()+543)%100}`;
-const thDateFull = d => `${d.getDate()} ${THMONTH[d.getMonth()]} ${d.getFullYear()+543}`;
-// แปลงเป็น yyyy-mm-dd ตามเวลาท้องถิ่น (ห้ามใช้ toISOString เพราะจะเลื่อนวันตาม UTC)
-const isoLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-const parseInputDate = v => { const [y,m,dd] = v.split('-').map(Number); return new Date(y, m-1, dd); };
-
-/* ---------- parsing ---------- */
-function parseNumber(v){
-  if(v == null) return 0;
-  const n = parseFloat(String(v).replace(/[,฿\s]/g,''));
-  return isNaN(n) ? 0 : n;
-}
-const TH_MONTHS = {'ม.ค':1,'มกราคม':1,'ก.พ':2,'กุมภาพันธ์':2,'มี.ค':3,'มีนาคม':3,'เม.ย':4,'เมษายน':4,
-'พ.ค':5,'พฤษภาคม':5,'มิ.ย':6,'มิถุนายน':6,'ก.ค':7,'กรกฎาคม':7,'ส.ค':8,'สิงหาคม':8,
-'ก.ย':9,'กันยายน':9,'ต.ค':10,'ตุลาคม':10,'พ.ย':11,'พฤศจิกายน':11,'ธ.ค':12,'ธันวาคม':12};
-
-function fixYear(y){
-  y = parseInt(y,10);
-  if(y < 100) y += (y > 60 ? 2500 : 2000);   // 68 -> 2568, 26 -> 2026
-  if(y > 2400) y -= 543;                      // พ.ศ. -> ค.ศ.
-  return y;
-}
-function parseThaiDate(s){
-  if(!s) return null;
-  s = String(s).trim();
-  // dd/mm/yyyy หรือ dd-mm-yyyy (อาจมีเวลา ต่อท้าย)
-  let m = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})/);
-  if(m){
-    const d = new Date(fixYear(m[3]), parseInt(m[2],10)-1, parseInt(m[1],10));
-    return isNaN(d) ? null : d;
-  }
-  // yyyy-mm-dd
-  m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
-  if(m){
-    const d = new Date(fixYear(m[1]), parseInt(m[2],10)-1, parseInt(m[3],10));
-    return isNaN(d) ? null : d;
-  }
-  // 1 ก.ค. 2568 / 1 กรกฎาคม 2568
-  m = s.match(/^(\d{1,2})\s*([ก-ฮ.]+)\s*(\d{2,4})/);
-  if(m){
-    const key = Object.keys(TH_MONTHS).find(k => m[2].startsWith(k));
-    if(key) return new Date(fixYear(m[3]), TH_MONTHS[key]-1, parseInt(m[1],10));
-  }
-  const d = new Date(s);
-  return isNaN(d) ? null : d;
+  Logger.log(msg);
+  try { SpreadsheetApp.getUi().alert(msg); } catch (e) { /* ไม่มีหน้าต่าง UI ก็ข้ามไป */ }
 }
 
-/* ---------- อ่านชีตรายจ่ายจริง ----------
-   A=ประทับเวลา B=วันที่จ่าย C=เดือนที่เกี่ยวข้อง D=หมวดหมู่ E=รายการ
-   F=จำนวนเงิน G=ประเภทรายจ่าย H=วิธีจ่าย I=ผู้บันทึก J=เลขที่บิล K=ลิงก์ L=หมายเหตุ   */
-function parseExpenses(text){
-  expenseRows = [];
-  if(!text) return;
-  Papa.parse(text, {header:false, skipEmptyLines:true}).data.forEach((r,i)=>{
-    if(i === 0) return;
-    const amount = parseNumber(r[5]);
-    if(!amount) return;
-    const payDate = parseThaiDate(r[1]);
-    // ใช้ "เดือนที่เกี่ยวข้อง" เป็นหลัก ถ้าว่างจึงใช้เดือนของวันที่จ่าย
-    let month = String(r[2] || '').trim();
-    if(!/^\d{4}-\d{2}$/.test(month)){
-      month = payDate ? `${payDate.getFullYear()}-${String(payDate.getMonth()+1).padStart(2,'0')}` : '';
-    }
-    if(!month) return;
-    expenseRows.push({
-      payDate, month,
-      category: String(r[3] || 'ไม่ระบุหมวด').trim(),
-      item:     String(r[4] || '').trim(),
-      amount,
-      type:     String(r[6] || '').indexOf('ต้นทุน') > -1 ? 'cogs' : 'opex',
-      method:   String(r[7] || '').trim()
-    });
-  });
-}
+// ====================================================
+//  ชีตหมวดหมู่
+// ====================================================
+function createCategorySheet(ss) {
+  let sh = ss.getSheetByName(SH_CATEGORY);
+  const isNew = !sh;
+  if (isNew) sh = ss.insertSheet(SH_CATEGORY, ss.getNumSheets());
 
-/* ---------- อ่านชีตสต็อกสิ้นเดือน (A=เดือน B=มูลค่า) ---------- */
-function parseStock(text){
-  stockMap = {};
-  if(!text) return;
-  Papa.parse(text, {header:false, skipEmptyLines:true}).data.forEach((r,i)=>{
-    if(i === 0) return;
-    const m = String(r[0] || '').trim();
-    if(!/^\d{4}-\d{2}$/.test(m)) return;
-    stockMap[m] = parseNumber(r[1]);
-  });
-}
+  const headers = ['ชื่อหมวดหมู่', 'ประเภท', 'สถานะ', 'ลำดับแสดงผล'];
+  sh.getRange(1, 1, 1, headers.length).setValues([headers]);
+  styleHeader(sh, headers.length);
 
-/* ---------- เดือนก่อนหน้า เช่น 2026-10 → 2026-09 ---------- */
-function prevMonth(key){
-  let [y,m] = key.split('-').map(Number);
-  m--; if(m === 0){ m = 12; y--; }
-  return `${y}-${String(m).padStart(2,'0')}`;
-}
-
-/* ---------- load ---------- */
-function loadData(){
-  const sb = document.getElementById('stateBox');
-  sb.style.display='block';
-  sb.innerHTML = '<div class="spin"></div>กำลังดึงข้อมูลจาก Google Sheets…';
-  document.getElementById('dash').style.display='none';
-
-  const grab = url => url
-    ? fetch(url + (url.indexOf('?')>-1?'&':'?') + '_=' + Date.now(), {cache:'no-store'})
-        .then(r => r.ok ? r.text() : '').catch(() => '')
-    : Promise.resolve('');
-
-  Promise.all([
-    fetch(CSV_URL + '&_=' + Date.now(), {cache:'no-store'})
-      .then(r => { if(!r.ok) throw new Error('HTTP '+r.status); return r.text(); }),
-    grab(EXPENSE_CSV_URL),
-    grab(STOCK_CSV_URL)
-  ])
-    .then(([text, expText, stockText]) => {
-      parseExpenses(expText);
-      parseStock(stockText);
-      // อ้างตำแหน่งคอลัมน์คงที่: A=ประทับเวลา B=ยอดขายวันที่ C=ยอดขาย D=เงินสด
-      // E=เงินโอน F=กำไร G=ต้นทุน I=รายได้จากรถสามล้อ J=กำไรจากของฝากขาย
-      const parsed = Papa.parse(text, {header:false, skipEmptyLines:true});
-      const rows = [];
-      parsed.data.forEach((r, i) => {
-        if(i === 0) return;                 // ข้ามแถวหัวตาราง
-        const date = parseThaiDate(r[1]);   // B: ยอดขายวันที่
-        if(!date) return;
-        rows.push({
-          date,
-          sale:     parseNumber(r[2]),      // C: ยอดขาย
-          cash:     parseNumber(r[3]),      // D: เงินสด
-          transfer: parseNumber(r[4]),      // E: เงินโอน
-          profit:   parseNumber(r[5]),      // F: กำไร
-          cost:     parseNumber(r[6]),      // G: ต้นทุน
-          trike:    parseNumber(r[8]),      // I: รายได้จากรถสามล้อ
-          consign:  parseNumber(r[9]),      // J: กำไรจากของฝากขาย
-        });
-      });
-      if(rows.length === 0) throw new Error('อ่านข้อมูลได้ 0 แถว — โปรดตรวจสอบหัวคอลัมน์ในชีต');
-
-      // รวมยอดของวันเดียวกัน (กรณีกรอกหลายครั้งต่อวัน)
-      const byDay = new Map();
-      rows.forEach(r => {
-        const k = isoLocal(r.date);
-        if(!byDay.has(k)) byDay.set(k, {...r});
-        else { const o = byDay.get(k); o.sale+=r.sale; o.cash+=r.cash; o.transfer+=r.transfer;
-               o.profit+=r.profit; o.cost+=r.cost; o.trike+=r.trike; o.consign+=r.consign; }
-      });
-      allRows = [...byDay.values()].sort((a,b)=>a.date-b.date);
-
-      // ตั้งค่าช่วงวันที่เริ่มต้น = ทั้งหมด
-      document.getElementById('dateFrom').value = isoLocal(allRows[0].date);
-      document.getElementById('dateTo').value   = isoLocal(allRows[allRows.length-1].date);
-      document.getElementById('dateFrom').min = isoLocal(allRows[0].date);
-      document.getElementById('dateTo').max   = isoLocal(allRows[allRows.length-1].date);
-
-      sb.style.display='none';
-      document.getElementById('dash').style.display='block';
-      render();
-    })
-    .catch(err => {
-      sb.innerHTML = `<div class="err"><strong>ไม่สามารถโหลดข้อมูลได้</strong> (${err.message})<br><br>
-      วิธีแก้ไข:<br>
-      1. ตรวจสอบว่าชีตยังเผยแพร่เป็น CSV อยู่ (ไฟล์ → แชร์ → เผยแพร่ไปยังเว็บ)<br>
-      2. หากเปิดในหน้าพรีวิวของ Claude แล้วโหลดไม่ได้ ให้ <strong>ดาวน์โหลดไฟล์นี้แล้วเปิดด้วยเบราว์เซอร์โดยตรง</strong> หรืออัปโหลดขึ้น Netlify — จะดึงข้อมูลได้ตามปกติ<br>
-      3. กด "โหลดข้อมูลใหม่" เพื่อลองอีกครั้ง</div>`;
-    });
-}
-
-/* ---------- filters ---------- */
-function preset(p){
-  const last = allRows[allRows.length-1].date;
-  let from;
-  if(p === 'all')      from = allRows[0].date;
-  else if(p === 'month') from = new Date(last.getFullYear(), last.getMonth(), 1);
-  else { from = new Date(last); from.setDate(from.getDate() - (p-1)); }
-  document.getElementById('dateFrom').value = isoLocal(from < allRows[0].date ? allRows[0].date : from);
-  document.getElementById('dateTo').value = isoLocal(last);
-  render();
-}
-function setPay(mode, btn){
-  payMode = mode;
-  document.querySelectorAll('#payChips .chip').forEach(c=>c.classList.remove('active'));
-  btn.classList.add('active');
-  render();
-}
-function filtered(){
-  const f = parseInputDate(document.getElementById('dateFrom').value);
-  const t = parseInputDate(document.getElementById('dateTo').value);
-  t.setHours(23,59,59,999);
-  return allRows.filter(r => r.date >= f && r.date <= t);
-}
-
-/* ---------- render ---------- */
-function kpiCard(label, value, color, sub=''){
-  return `<div class="kpi" style="--kc:${color}">
-    <div class="k-label">${label}</div>
-    <div class="k-value num">${value}</div>
-    ${sub ? `<div class="k-sub">${sub}</div>` : ''}
-  </div>`;
-}
-
-function render(){
-  const rows = filtered();
-  const payTxt = payMode==='cash' ? ' · เฉพาะเงินสด' : payMode==='transfer' ? ' · เฉพาะเงินโอน' : '';
-  const pl = document.getElementById('periodLabel');
-
-  if(rows.length === 0){
-    pl.textContent = 'ไม่มีข้อมูลในช่วงวันที่ที่เลือก';
-    document.getElementById('kpiRow').innerHTML =
-      kpiCard('ไม่มีข้อมูล','—','var(--ink-soft)','ลองขยายช่วงวันที่');
-    Object.values(charts).forEach(c=>c && c.destroy());
-    charts = {};
-    document.querySelector('#tbl tbody').innerHTML='';
-    document.querySelector('#tbl tfoot').innerHTML='';
-    document.getElementById('pager').innerHTML='';
-    document.getElementById('realSection').style.display='none';
-    return;
+  // ใส่หมวดหมู่ตั้งต้นเฉพาะตอนสร้างใหม่
+  if (isNew) {
+    sh.getRange(2, 1, DEFAULT_CATEGORIES.length, 4).setValues(DEFAULT_CATEGORIES);
   }
 
-  pl.textContent = `สรุปช่วง ${thDateFull(rows[0].date)} – ${thDateFull(rows[rows.length-1].date)} (${rows.length} วัน)${payTxt}`;
+  // dropdown: ประเภท และ สถานะ
+  setDropdown(sh, 2, ['ต้นทุนสินค้า', 'ค่าใช้จ่ายดำเนินงาน']);
+  setDropdown(sh, 3, ['ใช้งาน', 'ยกเลิก']);
 
-  const sum = k => rows.reduce((a,r)=>a+r[k],0);
-  const totalSale = sum('sale'), totalCash = sum('cash'), totalTf = sum('transfer');
-  const totalProfit = sum('profit'), totalCost = sum('cost');
-  const totalTrike = sum('trike'), totalConsign = sum('consign');
-  const grandProfit = totalProfit + totalTrike + totalConsign;
-  const shownSale = payMode==='cash' ? totalCash : payMode==='transfer' ? totalTf : totalSale;
-  const margin = totalSale > 0 ? (totalProfit/totalSale*100) : 0;
-
-  // KPI
-  let k = '';
-  k += kpiCard(payMode==='all' ? 'ยอดขายรวม' : payMode==='cash' ? 'ยอดขาย (เงินสด)' : 'ยอดขาย (เงินโอน)',
-               THB(shownSale)+' ฿','var(--navy)', `เฉลี่ย ${THB0(shownSale/rows.length)} ฿/วัน`);
-  if(payMode==='all'){
-    // ไม่แสดงการ์ดเงินสด/เงินโอน — ดูสัดส่วนได้จากกราฟโดนัทและตารางด้านล่าง
-  }
-  k += kpiCard('ต้นทุน', THB(totalCost)+' ฿','var(--cost)');
-  k += kpiCard('กำไรร้านค้า', THB(totalProfit)+' ฿','var(--profit)', `อัตรากำไร ${margin.toFixed(1)}%`);
-  k += kpiCard('รายได้จากรถสามล้อ', THB(totalTrike)+' ฿','var(--trike)');
-  k += kpiCard('กำไรจากของฝากขาย', THB(totalConsign)+' ฿','var(--consign)');
-  k += kpiCard('กำไรรวมทั้งสิ้น', THB(grandProfit)+' ฿','var(--navy)', 'ร้านค้า + สามล้อ + ฝากขาย');
-  document.getElementById('kpiRow').innerHTML = k;
-
-  const labels = rows.map(r=>thDate(r.date));
-  Chart.defaults.font.family = "'IBM Plex Sans Thai',sans-serif";
-  Chart.defaults.color = '#5A7184';
-  Object.values(charts).forEach(c=>c && c.destroy());
-
-  // ---- daily chart ----
-  const dsets = [];
-  if(payMode !== 'transfer')
-    dsets.push({label:'เงินสด', data:rows.map(r=>r.cash), backgroundColor:'#C9A227', stack:'s', borderRadius:4});
-  if(payMode !== 'cash')
-    dsets.push({label:'เงินโอน', data:rows.map(r=>r.transfer), backgroundColor:'#2E7CD6', stack:'s', borderRadius:4});
-  charts.daily = new Chart(document.getElementById('chartDaily'), {
-    type:'bar',
-    data:{labels, datasets:dsets},
-    options:{
-      responsive:true, maintainAspectRatio:false,
-      plugins:{ legend:{position:'bottom'},
-        tooltip:{callbacks:{label:c=>` ${c.dataset.label}: ${THB(c.parsed.y)} ฿`}} },
-      scales:{ x:{stacked:true, grid:{display:false}},
-               y:{stacked:true, ticks:{callback:v=>THB0(v)}} }
-    }
-  });
-
-  // ---- pie ----
-  charts.pie = new Chart(document.getElementById('chartPie'), {
-    type:'doughnut',
-    data:{labels:['เงินสด','เงินโอน'],
-      datasets:[{data:[totalCash,totalTf], backgroundColor:['#C9A227','#2E7CD6'], borderWidth:2, borderColor:'#fff'}]},
-    options:{
-      responsive:true, maintainAspectRatio:false, cutout:'62%',
-      plugins:{ legend:{position:'bottom'},
-        tooltip:{callbacks:{label:c=>{
-          const tot = totalCash+totalTf;
-          const pct = tot>0 ? (c.parsed/tot*100).toFixed(1) : 0;
-          return ` ${c.label}: ${THB(c.parsed)} ฿ (${pct}%)`;
-        }}} }
-    }
-  });
-
-  // ---- profit vs cost ----
-  charts.profit = new Chart(document.getElementById('chartProfit'), {
-    type:'bar',
-    data:{labels, datasets:[
-      {label:'ต้นทุน', data:rows.map(r=>r.cost), backgroundColor:'rgba(217,130,43,.8)', borderRadius:4},
-      {label:'กำไร', type:'line', data:rows.map(r=>r.profit), borderColor:'#1E7A6E',
-       backgroundColor:'#1E7A6E', tension:.3, pointRadius:3, borderWidth:2.5}
-    ]},
-    options:{
-      responsive:true, maintainAspectRatio:false,
-      plugins:{ legend:{position:'bottom'},
-        tooltip:{callbacks:{label:c=>` ${c.dataset.label}: ${THB(c.parsed.y)} ฿`}} },
-      scales:{ x:{grid:{display:false}}, y:{ticks:{callback:v=>THB0(v)}} }
-    }
-  });
-
-  // ---- monthly profit vs cost ----
-  const byMonth = new Map();
-  rows.forEach(r=>{
-    const key = `${r.date.getFullYear()}-${String(r.date.getMonth()+1).padStart(2,'0')}`;
-    if(!byMonth.has(key)) byMonth.set(key, {y:r.date.getFullYear(), m:r.date.getMonth(), profit:0, cost:0, sale:0, trike:0, consign:0});
-    const o = byMonth.get(key);
-    o.profit += r.profit; o.cost += r.cost; o.sale += r.sale;
-    o.trike += r.trike; o.consign += r.consign;
-  });
-  const months = [...byMonth.entries()].sort((a,b)=>a[0].localeCompare(b[0])).map(e=>e[1]);
-  charts.monthly = new Chart(document.getElementById('chartMonthly'), {
-    type:'bar',
-    data:{
-      labels: months.map(o=>`${THMONTH[o.m]} ${(o.y+543)%100}`),
-      datasets:[
-        {label:'ต้นทุน', data:months.map(o=>o.cost), backgroundColor:'#D9822B', borderRadius:5},
-        {label:'กำไร', data:months.map(o=>o.profit), backgroundColor:'#1E7A6E', borderRadius:5}
-      ]
-    },
-    options:{
-      responsive:true, maintainAspectRatio:false,
-      plugins:{ legend:{position:'bottom'},
-        tooltip:{callbacks:{
-          label:c=>` ${c.dataset.label}: ${THB(c.parsed.y)} ฿`,
-          afterBody:items=>{
-            const o = months[items[0].dataIndex];
-            return o.sale>0 ? `อัตรากำไร ${(o.profit/o.sale*100).toFixed(1)}%` : '';
-          }
-        }} },
-      scales:{ x:{grid:{display:false}}, y:{ticks:{callback:v=>THB0(v)}} }
-    }
-  });
-
-  // ---- monthly income composition ----
-  const mLabels = months.map(o=>`${THMONTH[o.m]} ${(o.y+543)%100}`);
-  charts.income = new Chart(document.getElementById('chartIncome'), {
-    type:'bar',
-    data:{
-      labels: mLabels,
-      datasets:[
-        {label:'กำไรร้านค้า', data:months.map(o=>o.profit), backgroundColor:'#1E7A6E', stack:'g', borderRadius:4},
-        {label:'รายได้จากรถสามล้อ', data:months.map(o=>o.trike), backgroundColor:'#6A4C93', stack:'g', borderRadius:4},
-        {label:'กำไรจากของฝากขาย', data:months.map(o=>o.consign), backgroundColor:'#9B4D7A', stack:'g', borderRadius:4}
-      ]
-    },
-    options:{
-      responsive:true, maintainAspectRatio:false,
-      plugins:{ legend:{position:'bottom'},
-        tooltip:{callbacks:{
-          label:c=>` ${c.dataset.label}: ${THB(c.parsed.y)} ฿`,
-          footer:items=>{
-            const o = months[items[0].dataIndex];
-            return `กำไรรวมทั้งสิ้น: ${THB(o.profit+o.trike+o.consign)} ฿`;
-          }
-        }} },
-      scales:{ x:{stacked:true, grid:{display:false}},
-               y:{stacked:true, ticks:{callback:v=>THB0(v)}} }
-    }
-  });
-
-  // ---- ต้นทุน/กำไรที่แท้จริง ----
-  renderReal(months);
-
-  // ---- table (แบ่งหน้า หน้าละ 15 วัน เรียงจากวันที่ล่าสุด) ----
-  tableRows = [...rows].sort((a,b)=>b.date-a.date);
-  tableTotals = {totalSale, totalCash, totalTf, totalCost, totalProfit, margin, totalTrike, totalConsign, grandProfit};
-  curPage = 1;
-  drawTable();
+  sh.setColumnWidth(1, 200);
+  sh.setColumnWidth(2, 180);
+  sh.setFrozenRows(1);
 }
 
-/* ====================================================
-   ต้นทุนและกำไรที่แท้จริง — คิดเป็นรายเดือน
-   เกณฑ์เงินสด   : รายได้ − รายจ่ายจริงทั้งหมดที่เกิดในเดือนนั้น
-   เกณฑ์นับสต็อก : รายได้ − ต้นทุนขายจริง − ค่าใช้จ่ายดำเนินงาน
-                   (ต้นทุนขายจริง = สต็อกต้นเดือน + ซื้อเข้า − สต็อกปลายเดือน)
-   ==================================================== */
-const CAT_COLORS = ['#D9822B','#1E7A6E','#6A4C93','#9B4D7A','#C9A227',
-                    '#2E7CD6','#B85C5C','#4A7C59','#8A6D3B','#5A7184'];
+// ====================================================
+//  ชีตรายจ่ายจริง
+// ====================================================
+function createExpenseSheet(ss) {
+  let sh = ss.getSheetByName(SH_EXPENSE);
+  const isNew = !sh;
+  if (isNew) sh = ss.insertSheet(SH_EXPENSE, ss.getNumSheets());
 
-function renderReal(months){
-  const sec = document.getElementById('realSection');
+  // A          B           C                D          E
+  // ประทับเวลา วันที่จ่าย  เดือนที่เกี่ยวข้อง หมวดหมู่  รายการ/รายละเอียด
+  // F          G            H         I          J              K           L
+  // จำนวนเงิน  ประเภทรายจ่าย วิธีจ่าย ผู้บันทึก เลขที่บิล/เอกสาร ลิงก์หลักฐาน หมายเหตุ
+  const headers = [
+    'ประทับเวลา', 'วันที่จ่าย', 'เดือนที่เกี่ยวข้อง', 'หมวดหมู่', 'รายการ/รายละเอียด',
+    'จำนวนเงิน', 'ประเภทรายจ่าย', 'วิธีจ่าย', 'ผู้บันทึก', 'เลขที่บิล/เอกสาร',
+    'ลิงก์หลักฐาน', 'หมายเหตุ'
+  ];
+  sh.getRange(1, 1, 1, headers.length).setValues([headers]);
+  styleHeader(sh, headers.length);
 
-  if(expenseRows.length === 0){
-    sec.style.display = 'none';
-    return;
+  // dropdown หมวดหมู่ — ดึงจากชีตหมวดหมู่แบบอ้างช่วง (เพิ่มหมวดใหม่แล้วขึ้นเอง)
+  const catRange = ss.getSheetByName(SH_CATEGORY).getRange('A2:A200');
+  const catRule = SpreadsheetApp.newDataValidation()
+    .requireValueInRange(catRange, true)
+    .setAllowInvalid(false)
+    .setHelpText('เลือกจากชีต "' + SH_CATEGORY + '" — เพิ่มหมวดใหม่ได้ที่ชีตนั้น')
+    .build();
+  sh.getRange(2, 4, 1000, 1).setDataValidation(catRule);
+
+  setDropdown(sh, 7, ['ต้นทุนสินค้า', 'ค่าใช้จ่ายดำเนินงาน']);
+  setDropdown(sh, 8, ['เงินสด', 'เงินโอน']);
+
+  // รูปแบบคอลัมน์
+  sh.getRange(2, 2, 1000, 1).setNumberFormat('dd/MM/yyyy');   // วันที่จ่าย
+  sh.getRange(2, 3, 1000, 1).setNumberFormat('@');            // เดือน เก็บเป็นข้อความ yyyy-MM
+  sh.getRange(2, 6, 1000, 1).setNumberFormat('#,##0.00');     // จำนวนเงิน
+
+  sh.setColumnWidth(1, 150);
+  sh.setColumnWidth(3, 140);
+  sh.setColumnWidth(4, 170);
+  sh.setColumnWidth(5, 260);
+  sh.setColumnWidth(11, 200);
+  sh.setColumnWidth(12, 200);
+  sh.setFrozenRows(1);
+}
+
+// ====================================================
+//  ชีตรายรับอื่น — เงินเข้าที่ไม่ผ่านฟอร์มพนักงานขาย
+//  (ยอดขายและรายได้รถสามล้อ มาจากฟอร์มแล้ว ห้ามลงซ้ำที่นี่)
+// ====================================================
+function createIncomeSheet(ss) {
+  let sh = ss.getSheetByName(SH_INCOME);
+  const isNew = !sh;
+  if (isNew) sh = ss.insertSheet(SH_INCOME, ss.getNumSheets());
+
+  // A          B          C                 D        E          F
+  // ประทับเวลา วันที่รับ  เดือนที่เกี่ยวข้อง ประเภท  รายละเอียด จำนวนเงิน
+  // G            H              I         J
+  // เข้าช่องทาง  เลขที่เอกสาร  ผู้บันทึก  หมายเหตุ
+  const headers = [
+    'ประทับเวลา', 'วันที่รับ', 'เดือนที่เกี่ยวข้อง', 'ประเภท', 'รายละเอียด',
+    'จำนวนเงิน', 'เข้าช่องทาง', 'เลขที่เอกสาร', 'ผู้บันทึก', 'หมายเหตุ'
+  ];
+  sh.getRange(1, 1, 1, headers.length).setValues([headers]);
+  styleHeader(sh, headers.length);
+
+  setDropdown(sh, 4, INCOME_TYPES);
+  setDropdown(sh, 7, ['เงินสด', 'เงินโอน']);
+
+  sh.getRange(2, 2, 500, 1).setNumberFormat('dd/MM/yyyy');
+  sh.getRange(2, 3, 500, 1).setNumberFormat('@');
+  sh.getRange(2, 6, 500, 1).setNumberFormat('#,##0.00');
+
+  sh.setColumnWidth(1, 150);
+  sh.setColumnWidth(3, 140);
+  sh.setColumnWidth(4, 160);
+  sh.setColumnWidth(5, 260);
+  sh.setColumnWidth(10, 220);
+  sh.setFrozenRows(1);
+
+  if (isNew) {
+    sh.getRange('D2').setNote(
+      'ลงเฉพาะเงินเข้าที่ไม่ได้มาจากฟอร์มพนักงานขาย\n' +
+      '• เงินทุนตั้งต้น / เงินยืม / เงินบริจาค / รายได้อื่น\n' +
+      '• ฝากเงินเข้าบัญชี — เงินสดลด บัญชีเพิ่ม (ยอดรวมเท่าเดิม)\n' +
+      '• ถอนเงินสด — บัญชีลด เงินสดเพิ่ม (ยอดรวมเท่าเดิม)\n\n' +
+      'ห้ามลง: ยอดขายสินค้า และรายได้ค่าเช่าที่/รถสามล้อ\n' +
+      '(สองรายการนี้มาจากฟอร์มพนักงานขายแล้ว จะนับซ้ำ)'
+    );
+    // แถวตัวอย่างเงินทุนตั้งต้น — แก้วันที่และจำนวนให้ตรงจริงแล้วใช้ได้เลย
+    sh.getRange(2, 1, 1, 10).setValues([[
+      '', '', '', 'เงินทุนตั้งต้น', 'รับเงินสดตั้งต้นร้านค้า', 50000,
+      'เงินสด', '101/69', '', 'แก้วันที่รับให้ตรงกับสมุดเงินสด'
+    ]]);
   }
-  sec.style.display = 'block';
+}
 
-  const mKey = o => `${o.y}-${String(o.m+1).padStart(2,'0')}`;
+// ====================================================
+//  ชีตสต็อกสิ้นเดือน
+// ====================================================
+function createStockSheet(ss) {
+  let sh = ss.getSheetByName(SH_STOCK);
+  const isNew = !sh;
+  if (isNew) sh = ss.insertSheet(SH_STOCK, ss.getNumSheets());
 
-  // รวมรายจ่ายรายเดือน และรายหมวด (เฉพาะเดือนที่อยู่ในช่วงที่เลือก)
-  const keys = months.map(mKey);
-  const inRange = expenseRows.filter(x => keys.indexOf(x.month) > -1);
+  const headers = ['เดือน (yyyy-MM)', 'มูลค่าสต็อกคงเหลือ', 'วันที่ตรวจนับ', 'ผู้ตรวจนับ', 'หมายเหตุ'];
+  sh.getRange(1, 1, 1, headers.length).setValues([headers]);
+  styleHeader(sh, headers.length);
 
-  const expByMonth = {};
-  const byCategory = {};
-  inRange.forEach(x => {
-    if(!expByMonth[x.month]) expByMonth[x.month] = {purchase:0, opex:0};
-    if(x.type === 'cogs') expByMonth[x.month].purchase += x.amount;
-    else                  expByMonth[x.month].opex     += x.amount;
-    byCategory[x.category] = (byCategory[x.category] || 0) + x.amount;
-  });
+  sh.getRange(2, 1, 500, 1).setNumberFormat('@');
+  sh.getRange(2, 2, 500, 1).setNumberFormat('#,##0.00');
+  sh.getRange(2, 3, 500, 1).setNumberFormat('dd/MM/yyyy');
 
-  // สร้างข้อมูลรายเดือน
-  const data = months.map(o => {
-    const key = mKey(o);
-    const e = expByMonth[key] || {purchase:0, opex:0};
-    const revenue  = o.sale + o.trike + o.consign;
-    const sysProfit = o.profit + o.trike + o.consign;
-    const spend    = e.purchase + e.opex;
-    const cashProfit = revenue - spend;
+  sh.setColumnWidth(1, 140);
+  sh.setColumnWidth(2, 180);
+  sh.setColumnWidth(4, 160);
+  sh.setFrozenRows(1);
 
-    // เกณฑ์นับสต็อก — ต้องมีสต็อกทั้งต้นเดือนและปลายเดือน
-    const sEnd = stockMap[key], sBegin = stockMap[prevMonth(key)];
-    let cogsReal = null, stockProfit = null;
-    if(sEnd !== undefined && sBegin !== undefined){
-      cogsReal = sBegin + e.purchase - sEnd;
-      stockProfit = revenue - cogsReal - e.opex;
+  if (isNew) {
+    sh.getRange('A2').setNote(
+      'ตรวจนับสต็อกวันสิ้นเดือน แล้วบันทึกมูลค่ารวมที่นี่\n' +
+      'ระบบจะคำนวณ: ต้นทุนขายจริง = สต็อกต้นเดือน + ซื้อเข้าเดือนนี้ − สต็อกปลายเดือน'
+    );
+  }
+}
+
+// ====================================================
+//  ตัวช่วยอัตโนมัติ — เติมเดือนและประเภทให้เอง
+//  (ทำงานเมื่อมีการแก้ไขชีตรายจ่ายจริง)
+// ====================================================
+function onEdit(e) {
+  try {
+    const sh = e.range.getSheet();
+    const name = sh.getName();
+    if (name !== SH_EXPENSE && name !== SH_INCOME) return;
+
+    const row = e.range.getRow();
+    const col = e.range.getColumn();
+    if (row < 2) return;
+
+    // กรอกวันที่จ่าย (B) → เติมประทับเวลา (A) และเดือนที่เกี่ยวข้อง (C)
+    if (col === 2 && e.range.getValue()) {
+      if (!sh.getRange(row, 1).getValue()) {
+        sh.getRange(row, 1).setValue(new Date());
+      }
+      if (!sh.getRange(row, 3).getValue()) {
+        const d = new Date(e.range.getValue());
+        if (!isNaN(d.getTime())) {
+          sh.getRange(row, 3).setValue(
+            d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2)
+          );
+        }
+      }
     }
 
-    return {key, label:`${THMONTH[o.m]} ${(o.y+543)%100}`, revenue, sysProfit,
-            purchase:e.purchase, opex:e.opex, spend, cashProfit, cogsReal, stockProfit};
-  });
-
-  // ---- KPI ----
-  const T = data.reduce((a,d)=>({
-    revenue:a.revenue+d.revenue, sysProfit:a.sysProfit+d.sysProfit,
-    purchase:a.purchase+d.purchase, opex:a.opex+d.opex,
-    spend:a.spend+d.spend, cashProfit:a.cashProfit+d.cashProfit
-  }), {revenue:0,sysProfit:0,purchase:0,opex:0,spend:0,cashProfit:0});
-
-  const withStock = data.filter(d => d.stockProfit !== null);
-  const stockTotal = withStock.reduce((a,d)=>a+d.stockProfit, 0);
-  const diff = T.cashProfit - T.sysProfit;
-
-  let rk = '';
-  rk += kpiCard('รายได้รวม', THB(T.revenue)+' ฿','var(--navy)','ร้านค้า + สามล้อ + ฝากขาย');
-  rk += kpiCard('รายจ่ายจริงรวม', THB(T.spend)+' ฿','var(--cost)',
-                `ซื้อของ ${THB0(T.purchase)} · ดำเนินงาน ${THB0(T.opex)}`);
-  rk += kpiCard('กำไรสุทธิ (เงินสด)', THB(T.cashProfit)+' ฿','var(--profit)',
-                T.revenue>0 ? `อัตรากำไรสุทธิ ${(T.cashProfit/T.revenue*100).toFixed(1)}%` : '');
-  rk += kpiCard('ส่วนต่างจากกำไรตามระบบ', (diff>=0?'+':'') + THB(diff)+' ฿',
-                diff>=0 ? 'var(--profit)' : '#C0392B',
-                `กำไรตามระบบ ${THB0(T.sysProfit)} ฿`);
-  if(withStock.length > 0){
-    rk += kpiCard('กำไรสุทธิ (นับสต็อก)', THB(stockTotal)+' ฿','var(--trike)',
-                  `จาก ${withStock.length} เดือนที่มีการนับสต็อก`);
+    // เลือกหมวดหมู่ (D) → เติมประเภทรายจ่าย (G) ตามทะเบียนหมวดหมู่
+    //  (เฉพาะชีตรายจ่าย — ชีตรายรับอื่นใช้คอลัมน์ D เป็น "ประเภท" ที่เลือกเองแล้ว)
+    if (name === SH_EXPENSE && col === 4 && e.range.getValue()) {
+      const type = lookupCategoryType(e.range.getValue());
+      if (type) sh.getRange(row, 7).setValue(type);
+    }
+  } catch (err) {
+    // ไม่ขัดจังหวะการพิมพ์ของผู้ใช้
   }
-  document.getElementById('realKpiRow').innerHTML = rk;
-
-  // ---- กราฟเปรียบเทียบกำไร 3 เกณฑ์ ----
-  charts.real = new Chart(document.getElementById('chartRealProfit'), {
-    type:'bar',
-    data:{
-      labels: data.map(d=>d.label),
-      datasets:[
-        {label:'กำไรตามระบบ', data:data.map(d=>d.sysProfit), backgroundColor:'#9DB8C9', borderRadius:4},
-        {label:'กำไรสุทธิ (เงินสด)', data:data.map(d=>d.cashProfit), backgroundColor:'#1E7A6E', borderRadius:4},
-        {label:'กำไรสุทธิ (นับสต็อก)', data:data.map(d=>d.stockProfit), backgroundColor:'#6A4C93', borderRadius:4}
-      ]
-    },
-    options:{
-      responsive:true, maintainAspectRatio:false,
-      plugins:{ legend:{position:'bottom'},
-        tooltip:{callbacks:{label:c=>
-          c.parsed.y===null ? ` ${c.dataset.label}: ยังไม่ได้นับสต็อก`
-                            : ` ${c.dataset.label}: ${THB(c.parsed.y)} ฿`}} },
-      scales:{ x:{grid:{display:false}}, y:{ticks:{callback:v=>THB0(v)}} }
-    }
-  });
-
-  // ---- กราฟสัดส่วนรายจ่ายตามหมวดหมู่ ----
-  const cats = Object.entries(byCategory).sort((a,b)=>b[1]-a[1]);
-  charts.cat = new Chart(document.getElementById('chartCategory'), {
-    type:'doughnut',
-    data:{
-      labels: cats.map(c=>c[0]),
-      datasets:[{data:cats.map(c=>c[1]),
-                 backgroundColor:cats.map((c,i)=>CAT_COLORS[i % CAT_COLORS.length]),
-                 borderWidth:2, borderColor:'#fff'}]
-    },
-    options:{
-      responsive:true, maintainAspectRatio:false, cutout:'58%',
-      plugins:{ legend:{position:'bottom', labels:{boxWidth:12, font:{size:11}}},
-        tooltip:{callbacks:{label:c=>{
-          const pct = T.spend>0 ? (c.parsed/T.spend*100).toFixed(1) : 0;
-          return ` ${c.label}: ${THB(c.parsed)} ฿ (${pct}%)`;
-        }}} }
-    }
-  });
-
-  // ---- ตารางสรุปรายเดือน ----
-  const dash = '<span class="muted">—</span>';
-  document.querySelector('#tblReal tbody').innerHTML = data.map(d=>`<tr>
-    <td>${d.label}</td>
-    <td>${THB(d.revenue)}</td>
-    <td class="muted">${THB(d.sysProfit)}</td>
-    <td style="color:var(--cost)">${THB(d.purchase)}</td>
-    <td style="color:var(--cost)">${THB(d.opex)}</td>
-    <td>${THB(d.spend)}</td>
-    <td class="${d.cashProfit>=0?'pos':'neg'}" style="font-weight:600">${THB(d.cashProfit)}</td>
-    <td>${d.cogsReal===null ? dash : THB(d.cogsReal)}</td>
-    <td class="${d.stockProfit===null?'':(d.stockProfit>=0?'pos':'neg')}" style="font-weight:600">
-      ${d.stockProfit===null ? dash : THB(d.stockProfit)}</td>
-  </tr>`).join('');
-
-  document.querySelector('#tblReal tfoot').innerHTML = `<tr>
-    <td>รวม ${data.length} เดือน</td>
-    <td>${THB(T.revenue)}</td><td>${THB(T.sysProfit)}</td>
-    <td>${THB(T.purchase)}</td><td>${THB(T.opex)}</td><td>${THB(T.spend)}</td>
-    <td>${THB(T.cashProfit)}</td>
-    <td>${dash}</td>
-    <td>${withStock.length ? THB(stockTotal) : dash}</td></tr>`;
-
-  // ---- คำอธิบายใต้ตาราง ----
-  const missing = data.filter(d => d.stockProfit === null).map(d => d.label);
-  document.getElementById('realNote').innerHTML =
-    `<strong>กำไรสุทธิ (เงินสด)</strong> = รายได้รวม − รายจ่ายจริงทั้งหมดที่เกิดในเดือนนั้น · ` +
-    `<strong>กำไรสุทธิ (นับสต็อก)</strong> = รายได้รวม − ต้นทุนขายจริง − ค่าใช้จ่ายดำเนินงาน ` +
-    `โดยต้นทุนขายจริง = สต็อกต้นเดือน + ซื้อของเข้าร้าน − สต็อกปลายเดือน` +
-    (missing.length ? `<br>เดือนที่ยังคำนวณเกณฑ์นับสต็อกไม่ได้ (ต้องมีมูลค่าสต็อกทั้งเดือนก่อนหน้าและเดือนนั้น): ${missing.join(', ')}` : '');
 }
 
-/* ---------- ตารางแบบแบ่งหน้า ---------- */
-const PAGE_SIZE = 15;
-let tableRows = [], tableTotals = null, curPage = 1;
-
-function gotoPage(p){
-  curPage = p;
-  drawTable();
-  document.getElementById('tbl').scrollIntoView({behavior:'smooth', block:'nearest'});
+function lookupCategoryType(name) {
+  const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SH_CATEGORY);
+  if (!sh) return '';
+  const data = sh.getRange(2, 1, Math.max(sh.getLastRow() - 1, 1), 2).getValues();
+  for (var i = 0; i < data.length; i++) {
+    if (String(data[i][0]).trim() === String(name).trim()) return data[i][1];
+  }
+  return '';
 }
 
-function drawTable(){
-  const rows = tableRows, t = tableTotals;
-  const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
-  if(curPage > totalPages) curPage = totalPages;
-  const start = (curPage-1)*PAGE_SIZE;
-  const pageRows = rows.slice(start, start+PAGE_SIZE);
-
-  document.querySelector('#tbl tbody').innerHTML = pageRows.map(r=>{
-    const m = r.sale>0 ? (r.profit/r.sale*100).toFixed(1)+'%' : '—';
-    return `<tr>
-      <td>${thDateFull(r.date)}</td>
-      <td>${THB(r.sale)}</td>
-      <td style="color:var(--cash)">${THB(r.cash)}</td>
-      <td style="color:var(--transfer)">${THB(r.transfer)}</td>
-      <td>${THB(r.cost)}</td>
-      <td class="${r.profit>=0?'pos':'neg'}">${THB(r.profit)}</td>
-      <td>${m}</td>
-      <td style="color:var(--trike)">${THB(r.trike)}</td>
-      <td style="color:var(--consign)">${THB(r.consign)}</td>
-      <td style="font-weight:600">${THB(r.profit + r.trike + r.consign)}</td></tr>`;
-  }).join('');
-
-  document.querySelector('#tbl tfoot').innerHTML = `<tr>
-    <td>รวมทั้งช่วง ${rows.length} วัน</td>
-    <td>${THB(t.totalSale)}</td><td>${THB(t.totalCash)}</td><td>${THB(t.totalTf)}</td>
-    <td>${THB(t.totalCost)}</td><td>${THB(t.totalProfit)}</td><td>${t.margin.toFixed(1)}%</td>
-    <td>${THB(t.totalTrike)}</td><td>${THB(t.totalConsign)}</td><td>${THB(t.grandProfit)}</td></tr>`;
-
-  // ปุ่มเลือกหน้า
-  const pager = document.getElementById('pager');
-  if(totalPages <= 1){ pager.innerHTML = ''; return; }
-  let h = `<button ${curPage===1?'disabled':''} onclick="gotoPage(${curPage-1})">‹ ก่อนหน้า</button>`;
-  // แสดงเลขหน้าแบบย่อ: 1 … รอบหน้าปัจจุบัน … หน้าสุดท้าย
-  const pages = new Set([1, totalPages, curPage-1, curPage, curPage+1]);
-  let prev = 0;
-  [...pages].filter(p=>p>=1 && p<=totalPages).sort((a,b)=>a-b).forEach(p=>{
-    if(p - prev > 1) h += `<span class="pinfo">…</span>`;
-    h += `<button class="${p===curPage?'cur':''}" onclick="gotoPage(${p})">${p}</button>`;
-    prev = p;
-  });
-  h += `<button ${curPage===totalPages?'disabled':''} onclick="gotoPage(${curPage+1})">ถัดไป ›</button>`;
-  h += `<span class="pinfo">แสดงข้อมูลลำดับที่ ${start+1}–${start+pageRows.length} จากทั้งหมด ${rows.length}</span>`;
-  pager.innerHTML = h;
+// ====================================================
+//  Helper
+// ====================================================
+function styleHeader(sh, cols) {
+  sh.getRange(1, 1, 1, cols)
+    .setBackground(HEADER_BG)
+    .setFontColor('#FFFFFF')
+    .setFontWeight('bold')
+    .setVerticalAlignment('middle');
+  sh.setRowHeight(1, 34);
 }
 
-loadData();
-</script>
-</body>
-</html>
+function setDropdown(sh, col, values) {
+  const rule = SpreadsheetApp.newDataValidation()
+    .requireValueInList(values, true)
+    .setAllowInvalid(false)
+    .build();
+  sh.getRange(2, col, 1000, 1).setDataValidation(rule);
+}
