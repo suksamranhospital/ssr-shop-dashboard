@@ -114,6 +114,16 @@
   tfoot td{font-weight:700;background:#F0F5F3;border-top:2px solid var(--navy)}
   .pos{color:var(--profit)} .neg{color:#C0392B}
 
+  /* ===== section divider ===== */
+  .divider{display:flex;align-items:center;gap:12px;margin:26px 0 14px}
+  .divider::before,.divider::after{content:'';flex:1;height:1px;background:var(--line)}
+  .divider span{
+    font-family:'Bai Jamjuree',sans-serif;font-weight:600;font-size:.95rem;
+    color:var(--navy);white-space:nowrap;
+  }
+  .note{font-size:.78rem;color:var(--ink-soft);margin-top:10px;line-height:1.7}
+  .muted{color:var(--ink-soft)}
+
   /* ===== pagination ===== */
   .pager{display:flex;gap:6px;justify-content:center;align-items:center;margin-top:14px;flex-wrap:wrap}
   .pager button{
@@ -222,6 +232,44 @@
       <div class="chart-wrap sm"><canvas id="chartIncome"></canvas></div>
     </div>
 
+    <!-- ต้นทุน/กำไรที่แท้จริง -->
+    <section id="realSection" style="display:none">
+      <div class="divider"><span>ต้นทุนและกำไรที่แท้จริง (คิดเป็นรายเดือน)</span></div>
+
+      <section class="kpis" id="realKpiRow"></section>
+
+      <div class="grid2">
+        <div class="card">
+          <h2>เปรียบเทียบกำไร 3 เกณฑ์ รายเดือน</h2>
+          <div class="chart-wrap sm"><canvas id="chartRealProfit"></canvas></div>
+        </div>
+        <div class="card">
+          <h2>สัดส่วนรายจ่ายตามหมวดหมู่</h2>
+          <div class="chart-wrap sm"><canvas id="chartCategory"></canvas></div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:14px">
+        <h2>สรุปรายเดือน — ต้นทุนและกำไรที่แท้จริง</h2>
+        <div style="overflow-x:auto">
+          <table id="tblReal">
+            <thead>
+              <tr>
+                <th>เดือน</th><th>รายได้รวม</th>
+                <th>กำไรตามระบบ</th>
+                <th>ซื้อของเข้าร้าน</th><th>ค่าใช้จ่ายดำเนินงาน</th><th>รายจ่ายรวม</th>
+                <th>กำไรสุทธิ (เงินสด)</th>
+                <th>ต้นทุนขายจริง</th><th>กำไรสุทธิ (นับสต็อก)</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+            <tfoot></tfoot>
+          </table>
+        </div>
+        <p class="note" id="realNote"></p>
+      </div>
+    </section>
+
     <!-- Table -->
     <div class="card">
       <h2>รายละเอียดรายวัน</h2>
@@ -246,7 +294,15 @@
 <script>
 const CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQTiKkgS4-1quVWsJbvjKy-a6xHqAO6ulVIKWtlKK60FoW0cMgqZIvuuprzQL_eIg0Oa4QB-MLU9cYG/pub?output=csv";
 
-let allRows = [];          // {date:Date, sale, cash, transfer, profit, cost}
+// ★ ใส่ลิงก์ CSV ของชีต "รายจ่ายจริง" และ "สต็อกสิ้นเดือน" ที่นี่
+//   (ไฟล์ → แชร์ → เผยแพร่ไปยังเว็บ → เลือกชีต → CSV แล้วคัดลอกลิงก์มาวาง)
+//   ถ้ายังไม่ใส่ dashboard ส่วนอื่นยังทำงานปกติ แต่ส่วน "กำไรที่แท้จริง" จะยังไม่แสดง
+const EXPENSE_CSV_URL = "";
+const STOCK_CSV_URL   = "";
+
+let allRows = [];          // {date:Date, sale, cash, transfer, profit, cost, trike, consign}
+let expenseRows = [];      // {payDate, month, category, item, amount, type, method}
+let stockMap = {};         // { 'yyyy-MM': มูลค่าสต็อกคงเหลือ }
 let payMode = 'all';
 let charts = {};
 
@@ -300,6 +356,53 @@ function parseThaiDate(s){
   return isNaN(d) ? null : d;
 }
 
+/* ---------- อ่านชีตรายจ่ายจริง ----------
+   A=ประทับเวลา B=วันที่จ่าย C=เดือนที่เกี่ยวข้อง D=หมวดหมู่ E=รายการ
+   F=จำนวนเงิน G=ประเภทรายจ่าย H=วิธีจ่าย I=ผู้บันทึก J=เลขที่บิล K=ลิงก์ L=หมายเหตุ   */
+function parseExpenses(text){
+  expenseRows = [];
+  if(!text) return;
+  Papa.parse(text, {header:false, skipEmptyLines:true}).data.forEach((r,i)=>{
+    if(i === 0) return;
+    const amount = parseNumber(r[5]);
+    if(!amount) return;
+    const payDate = parseThaiDate(r[1]);
+    // ใช้ "เดือนที่เกี่ยวข้อง" เป็นหลัก ถ้าว่างจึงใช้เดือนของวันที่จ่าย
+    let month = String(r[2] || '').trim();
+    if(!/^\d{4}-\d{2}$/.test(month)){
+      month = payDate ? `${payDate.getFullYear()}-${String(payDate.getMonth()+1).padStart(2,'0')}` : '';
+    }
+    if(!month) return;
+    expenseRows.push({
+      payDate, month,
+      category: String(r[3] || 'ไม่ระบุหมวด').trim(),
+      item:     String(r[4] || '').trim(),
+      amount,
+      type:     String(r[6] || '').indexOf('ต้นทุน') > -1 ? 'cogs' : 'opex',
+      method:   String(r[7] || '').trim()
+    });
+  });
+}
+
+/* ---------- อ่านชีตสต็อกสิ้นเดือน (A=เดือน B=มูลค่า) ---------- */
+function parseStock(text){
+  stockMap = {};
+  if(!text) return;
+  Papa.parse(text, {header:false, skipEmptyLines:true}).data.forEach((r,i)=>{
+    if(i === 0) return;
+    const m = String(r[0] || '').trim();
+    if(!/^\d{4}-\d{2}$/.test(m)) return;
+    stockMap[m] = parseNumber(r[1]);
+  });
+}
+
+/* ---------- เดือนก่อนหน้า เช่น 2026-10 → 2026-09 ---------- */
+function prevMonth(key){
+  let [y,m] = key.split('-').map(Number);
+  m--; if(m === 0){ m = 12; y--; }
+  return `${y}-${String(m).padStart(2,'0')}`;
+}
+
 /* ---------- load ---------- */
 function loadData(){
   const sb = document.getElementById('stateBox');
@@ -307,9 +410,20 @@ function loadData(){
   sb.innerHTML = '<div class="spin"></div>กำลังดึงข้อมูลจาก Google Sheets…';
   document.getElementById('dash').style.display='none';
 
-  fetch(CSV_URL + '&_=' + Date.now(), {cache:'no-store'})
-    .then(r => { if(!r.ok) throw new Error('HTTP '+r.status); return r.text(); })
-    .then(text => {
+  const grab = url => url
+    ? fetch(url + (url.indexOf('?')>-1?'&':'?') + '_=' + Date.now(), {cache:'no-store'})
+        .then(r => r.ok ? r.text() : '').catch(() => '')
+    : Promise.resolve('');
+
+  Promise.all([
+    fetch(CSV_URL + '&_=' + Date.now(), {cache:'no-store'})
+      .then(r => { if(!r.ok) throw new Error('HTTP '+r.status); return r.text(); }),
+    grab(EXPENSE_CSV_URL),
+    grab(STOCK_CSV_URL)
+  ])
+    .then(([text, expText, stockText]) => {
+      parseExpenses(expText);
+      parseStock(stockText);
       // อ้างตำแหน่งคอลัมน์คงที่: A=ประทับเวลา B=ยอดขายวันที่ C=ยอดขาย D=เงินสด
       // E=เงินโอน F=กำไร G=ต้นทุน I=รายได้จากรถสามล้อ J=กำไรจากของฝากขาย
       const parsed = Papa.parse(text, {header:false, skipEmptyLines:true});
@@ -407,6 +521,7 @@ function render(){
     document.querySelector('#tbl tbody').innerHTML='';
     document.querySelector('#tbl tfoot').innerHTML='';
     document.getElementById('pager').innerHTML='';
+    document.getElementById('realSection').style.display='none';
     return;
   }
 
@@ -549,11 +664,167 @@ function render(){
     }
   });
 
+  // ---- ต้นทุน/กำไรที่แท้จริง ----
+  renderReal(months);
+
   // ---- table (แบ่งหน้า หน้าละ 15 วัน เรียงจากวันที่ล่าสุด) ----
   tableRows = [...rows].sort((a,b)=>b.date-a.date);
   tableTotals = {totalSale, totalCash, totalTf, totalCost, totalProfit, margin, totalTrike, totalConsign, grandProfit};
   curPage = 1;
   drawTable();
+}
+
+/* ====================================================
+   ต้นทุนและกำไรที่แท้จริง — คิดเป็นรายเดือน
+   เกณฑ์เงินสด   : รายได้ − รายจ่ายจริงทั้งหมดที่เกิดในเดือนนั้น
+   เกณฑ์นับสต็อก : รายได้ − ต้นทุนขายจริง − ค่าใช้จ่ายดำเนินงาน
+                   (ต้นทุนขายจริง = สต็อกต้นเดือน + ซื้อเข้า − สต็อกปลายเดือน)
+   ==================================================== */
+const CAT_COLORS = ['#D9822B','#1E7A6E','#6A4C93','#9B4D7A','#C9A227',
+                    '#2E7CD6','#B85C5C','#4A7C59','#8A6D3B','#5A7184'];
+
+function renderReal(months){
+  const sec = document.getElementById('realSection');
+
+  if(expenseRows.length === 0){
+    sec.style.display = 'none';
+    return;
+  }
+  sec.style.display = 'block';
+
+  const mKey = o => `${o.y}-${String(o.m+1).padStart(2,'0')}`;
+
+  // รวมรายจ่ายรายเดือน และรายหมวด (เฉพาะเดือนที่อยู่ในช่วงที่เลือก)
+  const keys = months.map(mKey);
+  const inRange = expenseRows.filter(x => keys.indexOf(x.month) > -1);
+
+  const expByMonth = {};
+  const byCategory = {};
+  inRange.forEach(x => {
+    if(!expByMonth[x.month]) expByMonth[x.month] = {purchase:0, opex:0};
+    if(x.type === 'cogs') expByMonth[x.month].purchase += x.amount;
+    else                  expByMonth[x.month].opex     += x.amount;
+    byCategory[x.category] = (byCategory[x.category] || 0) + x.amount;
+  });
+
+  // สร้างข้อมูลรายเดือน
+  const data = months.map(o => {
+    const key = mKey(o);
+    const e = expByMonth[key] || {purchase:0, opex:0};
+    const revenue  = o.sale + o.trike + o.consign;
+    const sysProfit = o.profit + o.trike + o.consign;
+    const spend    = e.purchase + e.opex;
+    const cashProfit = revenue - spend;
+
+    // เกณฑ์นับสต็อก — ต้องมีสต็อกทั้งต้นเดือนและปลายเดือน
+    const sEnd = stockMap[key], sBegin = stockMap[prevMonth(key)];
+    let cogsReal = null, stockProfit = null;
+    if(sEnd !== undefined && sBegin !== undefined){
+      cogsReal = sBegin + e.purchase - sEnd;
+      stockProfit = revenue - cogsReal - e.opex;
+    }
+
+    return {key, label:`${THMONTH[o.m]} ${(o.y+543)%100}`, revenue, sysProfit,
+            purchase:e.purchase, opex:e.opex, spend, cashProfit, cogsReal, stockProfit};
+  });
+
+  // ---- KPI ----
+  const T = data.reduce((a,d)=>({
+    revenue:a.revenue+d.revenue, sysProfit:a.sysProfit+d.sysProfit,
+    purchase:a.purchase+d.purchase, opex:a.opex+d.opex,
+    spend:a.spend+d.spend, cashProfit:a.cashProfit+d.cashProfit
+  }), {revenue:0,sysProfit:0,purchase:0,opex:0,spend:0,cashProfit:0});
+
+  const withStock = data.filter(d => d.stockProfit !== null);
+  const stockTotal = withStock.reduce((a,d)=>a+d.stockProfit, 0);
+  const diff = T.cashProfit - T.sysProfit;
+
+  let rk = '';
+  rk += kpiCard('รายได้รวม', THB(T.revenue)+' ฿','var(--navy)','ร้านค้า + สามล้อ + ฝากขาย');
+  rk += kpiCard('รายจ่ายจริงรวม', THB(T.spend)+' ฿','var(--cost)',
+                `ซื้อของ ${THB0(T.purchase)} · ดำเนินงาน ${THB0(T.opex)}`);
+  rk += kpiCard('กำไรสุทธิ (เงินสด)', THB(T.cashProfit)+' ฿','var(--profit)',
+                T.revenue>0 ? `อัตรากำไรสุทธิ ${(T.cashProfit/T.revenue*100).toFixed(1)}%` : '');
+  rk += kpiCard('ส่วนต่างจากกำไรตามระบบ', (diff>=0?'+':'') + THB(diff)+' ฿',
+                diff>=0 ? 'var(--profit)' : '#C0392B',
+                `กำไรตามระบบ ${THB0(T.sysProfit)} ฿`);
+  if(withStock.length > 0){
+    rk += kpiCard('กำไรสุทธิ (นับสต็อก)', THB(stockTotal)+' ฿','var(--trike)',
+                  `จาก ${withStock.length} เดือนที่มีการนับสต็อก`);
+  }
+  document.getElementById('realKpiRow').innerHTML = rk;
+
+  // ---- กราฟเปรียบเทียบกำไร 3 เกณฑ์ ----
+  charts.real = new Chart(document.getElementById('chartRealProfit'), {
+    type:'bar',
+    data:{
+      labels: data.map(d=>d.label),
+      datasets:[
+        {label:'กำไรตามระบบ', data:data.map(d=>d.sysProfit), backgroundColor:'#9DB8C9', borderRadius:4},
+        {label:'กำไรสุทธิ (เงินสด)', data:data.map(d=>d.cashProfit), backgroundColor:'#1E7A6E', borderRadius:4},
+        {label:'กำไรสุทธิ (นับสต็อก)', data:data.map(d=>d.stockProfit), backgroundColor:'#6A4C93', borderRadius:4}
+      ]
+    },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{position:'bottom'},
+        tooltip:{callbacks:{label:c=>
+          c.parsed.y===null ? ` ${c.dataset.label}: ยังไม่ได้นับสต็อก`
+                            : ` ${c.dataset.label}: ${THB(c.parsed.y)} ฿`}} },
+      scales:{ x:{grid:{display:false}}, y:{ticks:{callback:v=>THB0(v)}} }
+    }
+  });
+
+  // ---- กราฟสัดส่วนรายจ่ายตามหมวดหมู่ ----
+  const cats = Object.entries(byCategory).sort((a,b)=>b[1]-a[1]);
+  charts.cat = new Chart(document.getElementById('chartCategory'), {
+    type:'doughnut',
+    data:{
+      labels: cats.map(c=>c[0]),
+      datasets:[{data:cats.map(c=>c[1]),
+                 backgroundColor:cats.map((c,i)=>CAT_COLORS[i % CAT_COLORS.length]),
+                 borderWidth:2, borderColor:'#fff'}]
+    },
+    options:{
+      responsive:true, maintainAspectRatio:false, cutout:'58%',
+      plugins:{ legend:{position:'bottom', labels:{boxWidth:12, font:{size:11}}},
+        tooltip:{callbacks:{label:c=>{
+          const pct = T.spend>0 ? (c.parsed/T.spend*100).toFixed(1) : 0;
+          return ` ${c.label}: ${THB(c.parsed)} ฿ (${pct}%)`;
+        }}} }
+    }
+  });
+
+  // ---- ตารางสรุปรายเดือน ----
+  const dash = '<span class="muted">—</span>';
+  document.querySelector('#tblReal tbody').innerHTML = data.map(d=>`<tr>
+    <td>${d.label}</td>
+    <td>${THB(d.revenue)}</td>
+    <td class="muted">${THB(d.sysProfit)}</td>
+    <td style="color:var(--cost)">${THB(d.purchase)}</td>
+    <td style="color:var(--cost)">${THB(d.opex)}</td>
+    <td>${THB(d.spend)}</td>
+    <td class="${d.cashProfit>=0?'pos':'neg'}" style="font-weight:600">${THB(d.cashProfit)}</td>
+    <td>${d.cogsReal===null ? dash : THB(d.cogsReal)}</td>
+    <td class="${d.stockProfit===null?'':(d.stockProfit>=0?'pos':'neg')}" style="font-weight:600">
+      ${d.stockProfit===null ? dash : THB(d.stockProfit)}</td>
+  </tr>`).join('');
+
+  document.querySelector('#tblReal tfoot').innerHTML = `<tr>
+    <td>รวม ${data.length} เดือน</td>
+    <td>${THB(T.revenue)}</td><td>${THB(T.sysProfit)}</td>
+    <td>${THB(T.purchase)}</td><td>${THB(T.opex)}</td><td>${THB(T.spend)}</td>
+    <td>${THB(T.cashProfit)}</td>
+    <td>${dash}</td>
+    <td>${withStock.length ? THB(stockTotal) : dash}</td></tr>`;
+
+  // ---- คำอธิบายใต้ตาราง ----
+  const missing = data.filter(d => d.stockProfit === null).map(d => d.label);
+  document.getElementById('realNote').innerHTML =
+    `<strong>กำไรสุทธิ (เงินสด)</strong> = รายได้รวม − รายจ่ายจริงทั้งหมดที่เกิดในเดือนนั้น · ` +
+    `<strong>กำไรสุทธิ (นับสต็อก)</strong> = รายได้รวม − ต้นทุนขายจริง − ค่าใช้จ่ายดำเนินงาน ` +
+    `โดยต้นทุนขายจริง = สต็อกต้นเดือน + ซื้อของเข้าร้าน − สต็อกปลายเดือน` +
+    (missing.length ? `<br>เดือนที่ยังคำนวณเกณฑ์นับสต็อกไม่ได้ (ต้องมีมูลค่าสต็อกทั้งเดือนก่อนหน้าและเดือนนั้น): ${missing.join(', ')}` : '');
 }
 
 /* ---------- ตารางแบบแบ่งหน้า ---------- */
