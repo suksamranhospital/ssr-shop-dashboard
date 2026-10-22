@@ -231,23 +231,20 @@
     </section>
 
     <!-- Charts -->
+    <div class="card" style="margin-bottom:14px">
+      <h2>เงินรับรายวัน (ตรงกับฝั่งเดบิตในสมุดบัญชี)</h2>
+      <div class="chart-wrap"><canvas id="chartDaily"></canvas></div>
+      <p class="note" id="dailyNote"></p>
+    </div>
     <div class="grid2">
       <div class="card">
-        <h2>ยอดขายรายวัน</h2>
-        <div class="chart-wrap"><canvas id="chartDaily"></canvas></div>
+        <h2>กำไร เทียบ ต้นทุน รายเดือน</h2>
+        <div class="chart-wrap sm"><canvas id="chartMonthly"></canvas></div>
       </div>
       <div class="card">
         <h2>สัดส่วนเงินสด / เงินโอน</h2>
         <div class="chart-wrap sm"><canvas id="chartPie"></canvas></div>
       </div>
-    </div>
-    <div class="card" style="margin-bottom:14px">
-      <h2>กำไร เทียบ ต้นทุน รายวัน</h2>
-      <div class="chart-wrap sm"><canvas id="chartProfit"></canvas></div>
-    </div>
-    <div class="card" style="margin-bottom:14px">
-      <h2>กำไร เทียบ ต้นทุน รายเดือน</h2>
-      <div class="chart-wrap sm"><canvas id="chartMonthly"></canvas></div>
     </div>
     <div class="card" style="margin-bottom:14px">
       <h2>องค์ประกอบกำไรรายเดือน (ร้านค้า · รถสามล้อ · ของฝากขาย)</h2>
@@ -632,17 +629,35 @@ function render(){
     dsets.push({label:'เงินสด', data:rows.map(r=>r.cash), backgroundColor:'#C9A227', stack:'s', borderRadius:4});
   if(payMode !== 'cash')
     dsets.push({label:'เงินโอน', data:rows.map(r=>r.transfer), backgroundColor:'#2E7CD6', stack:'s', borderRadius:4});
+  // รถสามล้อ + ของฝากขาย — ใส่เฉพาะตอนดูทั้งหมด เพื่อให้ความสูงแท่ง = เงินรับรวมของวันนั้น
+  if(payMode === 'all')
+    dsets.push({label:'สามล้อ + ฝากขาย', data:rows.map(r=>r.trike + r.consign),
+                backgroundColor:'#6A4C93', stack:'s', borderRadius:4});
   charts.daily = new Chart(document.getElementById('chartDaily'), {
     type:'bar',
     data:{labels, datasets:dsets},
     options:{
       responsive:true, maintainAspectRatio:false,
       plugins:{ legend:{position:'bottom'},
-        tooltip:{callbacks:{label:c=>` ${c.dataset.label}: ${THB(c.parsed.y)} ฿`}} },
+        tooltip:{callbacks:{
+          label:c=>` ${c.dataset.label}: ${THB(c.parsed.y)} ฿`,
+          footer:items=>{
+            const r = rows[items[0].dataIndex];
+            const tot = payMode==='cash' ? r.cash
+                      : payMode==='transfer' ? r.transfer
+                      : r.cash + r.transfer + r.trike + r.consign;
+            return `เงินรับรวมวันนี้: ${THB(tot)} ฿`;
+          }
+        }} },
       scales:{ x:{stacked:true, grid:{display:false}},
                y:{stacked:true, ticks:{callback:v=>THB0(v)}} }
     }
   });
+
+  document.getElementById('dailyNote').innerHTML = payMode==='all'
+    ? 'ความสูงของแต่ละแท่ง = เงินรับรวมของวันนั้น (ยอดขาย + รายได้รถสามล้อ + กำไรของฝากขาย) ' +
+      'ใช้กระทบยอดกับช่อง "เดบิต / รายการรับ" ในสมุดบัญชีได้โดยตรง'
+    : `แสดงเฉพาะ${payMode==='cash'?'เงินสด':'เงินโอน'} — กดปุ่ม "ทั้งหมด" ด้านบนเพื่อดูเงินรับรวมที่ตรงกับฝั่งเดบิตในสมุดบัญชี`;
 
   // ---- pie ----
   charts.pie = new Chart(document.getElementById('chartPie'), {
@@ -657,22 +672,6 @@ function render(){
           const pct = tot>0 ? (c.parsed/tot*100).toFixed(1) : 0;
           return ` ${c.label}: ${THB(c.parsed)} ฿ (${pct}%)`;
         }}} }
-    }
-  });
-
-  // ---- profit vs cost ----
-  charts.profit = new Chart(document.getElementById('chartProfit'), {
-    type:'bar',
-    data:{labels, datasets:[
-      {label:'ต้นทุน', data:rows.map(r=>r.cost), backgroundColor:'rgba(217,130,43,.8)', borderRadius:4},
-      {label:'กำไร', type:'line', data:rows.map(r=>r.profit), borderColor:'#1E7A6E',
-       backgroundColor:'#1E7A6E', tension:.3, pointRadius:3, borderWidth:2.5}
-    ]},
-    options:{
-      responsive:true, maintainAspectRatio:false,
-      plugins:{ legend:{position:'bottom'},
-        tooltip:{callbacks:{label:c=>` ${c.dataset.label}: ${THB(c.parsed.y)} ฿`}} },
-      scales:{ x:{grid:{display:false}}, y:{ticks:{callback:v=>THB0(v)}} }
     }
   });
 
