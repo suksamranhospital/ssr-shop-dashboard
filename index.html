@@ -351,6 +351,12 @@ const CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQTiKkgS4-1quVW
 //   ถ้ายังไม่ใส่ dashboard ส่วนอื่นยังทำงานปกติ แต่ส่วน "กำไรที่แท้จริง" จะยังไม่แสดง
 const EXPENSE_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQTiKkgS4-1quVWsJbvjKy-a6xHqAO6ulVIKWtlKK60FoW0cMgqZIvuuprzQL_eIg0Oa4QB-MLU9cYG/pub?gid=1050453862&single=true&output=csv";
 const STOCK_CSV_URL   = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQTiKkgS4-1quVWsJbvjKy-a6xHqAO6ulVIKWtlKK60FoW0cMgqZIvuuprzQL_eIg0Oa4QB-MLU9cYG/pub?gid=1748650753&single=true&output=csv";
+// ★ เงินทอนที่เก็บไว้ในลิ้นชักประจำ (petty cash float)
+//   เป็นเงินที่กันไว้จากเงินทุนตั้งต้น ไม่ต้องลงรายการใด ๆ เพิ่ม
+//   ใส่ไว้เพื่อแยกให้เห็นว่าในเงินสดในมือ มีส่วนนี้รวมอยู่เท่าไร
+//   ถ้าเปลี่ยนจำนวนเงินทอน แก้เลขบรรทัดนี้บรรทัดเดียว (ใส่ 0 เพื่อไม่แสดง)
+const CASH_FLOAT = 1000;
+
 // ★ ชีต "รายรับอื่น" — เงินทุนตั้งต้น เงินยืม เงินบริจาค ฝาก/ถอน
 const INCOME_CSV_URL  = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQTiKkgS4-1quVWsJbvjKy-a6xHqAO6ulVIKWtlKK60FoW0cMgqZIvuuprzQL_eIg0Oa4QB-MLU9cYG/pub?gid=1581312916&single=true&output=csv";
 
@@ -849,7 +855,9 @@ function renderBalance(viewRows){
   bk += kpiCard('เงินคงเหลือ', THB(balance)+' ฿','var(--navy)',
                 `ยอดยกไป ณ ${thDateFull(cutoff)}`);
   bk += kpiCard('• เงินสดในมือ', THB(cash)+' ฿','var(--cash)',
-                'ตรวจนับกับเงินในลิ้นชักได้');
+                CASH_FLOAT > 0
+                  ? 'รวมเงินทอน ' + THB0(CASH_FLOAT) + ' ฿ · ใช้หมุนเวียน ' + THB0(cash - CASH_FLOAT) + ' ฿'
+                  : 'ตรวจนับกับเงินในลิ้นชักได้');
   bk += kpiCard('• เงินในบัญชีธนาคาร', THB(bank)+' ฿','var(--transfer)',
                 'ตรวจกับสมุดบัญชี ธ.ออมสิน');
   bk += kpiCard('เงินรับสะสม (เดบิต)', THB(received)+' ฿','var(--profit)',
@@ -878,6 +886,9 @@ function renderBalance(viewRows){
     '<br><b>เงินในบัญชี</b> = รับโอน ' + THB0(B.transferMemo + B.otherBank) +
     ' ฿ − จ่ายด้วยเงินโอน ' + THB0(B.spendBank) + ' ฿ = ' + THB0(bank) + ' ฿' +
     ' · <b>เงินสดในมือ</b> = ส่วนที่เหลือ ' + THB0(cash) + ' ฿' +
+    (CASH_FLOAT > 0 ? '<br>ในเงินสดในมือ มี <b>เงินทอนประจำลิ้นชัก ' + THB0(CASH_FLOAT) +
+      ' ฿</b> รวมอยู่ด้วย — กันไว้จากเงินทุนตั้งต้น ไม่ได้ลงเป็นรายการแยก ' +
+      'ตอนตรวจนับเงินในลิ้นชักจึงต้องเจอยอดนี้รวมอยู่' : '') +
     (moved ? '<br>ย้ายเงินระหว่างกระเป๋า: ฝากเข้าบัญชี ' + THB0(B.moveToBank) +
              ' ฿ · ถอนเงินสด ' + THB0(B.moveToCash) + ' ฿ (ไม่กระทบยอดคงเหลือ)' : '');
 
