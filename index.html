@@ -856,7 +856,8 @@ function renderBalance(viewRows){
                 `ยอดยกไป ณ ${thDateFull(cutoff)}`);
   bk += kpiCard('• เงินสดในมือ', THB(cash)+' ฿','var(--cash)',
                 CASH_FLOAT > 0
-                  ? 'รวมเงินทอน ' + THB0(CASH_FLOAT) + ' ฿ ');
+                  ? 'รวมเงินทอน ' + THB0(CASH_FLOAT) + ' ฿'
+                  : 'ตรวจนับกับเงินในลิ้นชักได้');
   bk += kpiCard('• เงินในบัญชีธนาคาร', THB(bank)+' ฿','var(--transfer)',
                 'ตรวจกับสมุดบัญชี ธ.ออมสิน');
   bk += kpiCard('เงินรับสะสม (เดบิต)', THB(received)+' ฿','var(--profit)',
