@@ -130,6 +130,13 @@
   .ledger-box thead th{position:sticky;top:0;z-index:1}
   .ledger-box td.src{text-align:left;font-size:.78rem;color:var(--ink-soft)}
   .day-sale{color:var(--profit)} .day-pay{color:var(--cost)}
+  .chk{display:flex;gap:9px;align-items:flex-start;padding:9px 0;border-bottom:1px solid var(--line);font-size:.84rem;line-height:1.6}
+  .chk:last-child{border-bottom:none}
+  .chk-i{flex:none;width:19px;height:19px;border-radius:50%;display:grid;place-items:center;
+         font-size:.7rem;font-weight:700;color:#fff;margin-top:1px}
+  .chk-ok .chk-i{background:var(--profit)} .chk-warn .chk-i{background:var(--cost)}
+  .chk b{font-weight:600}
+  .chk-days{color:var(--ink-soft);font-size:.78rem}
 
   /* ===== pagination ===== */
   .pager{display:flex;gap:6px;justify-content:center;align-items:center;margin-top:14px;flex-wrap:wrap}
@@ -219,11 +226,13 @@
     <section id="balSection" style="display:none">
       <div class="divider"><span>เงินคงเหลือ (สะสมตั้งแต่เริ่มกิจการ ถึงวันสุดท้ายของช่วงที่เลือก)</span></div>
       <section class="kpis" id="balKpiRow"></section>
+
+      <div class="card" style="margin-bottom:14px">
+        <h2>สมุดเงินสดรายวัน — เดบิต / เครดิต / ยอดคงเหลือ</h2>
+        <div class="chart-wrap"><canvas id="chartCashbook"></canvas></div>
+      </div>
+
       <div class="grid2">
-        <div class="card">
-          <h2>ความเคลื่อนไหวเงินคงเหลือ</h2>
-          <div class="chart-wrap sm"><canvas id="chartBalance"></canvas></div>
-        </div>
         <div class="card">
           <h2>ที่มาของเงินคงเหลือ</h2>
           <div style="overflow-x:auto">
@@ -231,11 +240,10 @@
           </div>
           <p class="note" id="balNote"></p>
         </div>
-      </div>
-
-      <div class="card" style="margin-bottom:14px">
-        <h2>สมุดเงินสดรายวัน — เดบิต / เครดิต / ยอดคงเหลือ</h2>
-        <div class="chart-wrap"><canvas id="chartCashbook"></canvas></div>
+        <div class="card">
+          <h2>ตรวจสอบความสอดคล้อง</h2>
+          <div id="checkBox"></div>
+        </div>
       </div>
 
       <div class="card" style="margin-bottom:14px">
@@ -650,7 +658,11 @@ function render(){
   // ---- daily chart ----
   const dsets = [];
   if(payMode !== 'transfer')
-    dsets.push({label:'เงินสด', data:rows.map(r=>r.cash), backgroundColor:'#C9A227', stack:'s', borderRadius:4});
+    dsets.push({label:'เงินสด', data:rows.map(r=>
+      // ถ้ายอดขายรวม (C) ไม่เท่ากับเงินสด+เงินโอน ให้ส่วนต่างไปอยู่ฝั่งเงินสด
+      // เพื่อให้ความสูงแท่งเท่ากับยอดขายรวมที่ลงในสมุดบัญชีเสมอ
+      payMode === 'all' ? r.sale - r.transfer : r.cash),
+      backgroundColor:'#C9A227', stack:'s', borderRadius:4});
   if(payMode !== 'cash')
     dsets.push({label:'เงินโอน', data:rows.map(r=>r.transfer), backgroundColor:'#2E7CD6', stack:'s', borderRadius:4});
   // รถสามล้อ + ของฝากขาย — ใส่เฉพาะตอนดูทั้งหมด เพื่อให้ความสูงแท่ง = เงินรับรวมของวันนั้น
@@ -669,7 +681,7 @@ function render(){
             const r = rows[items[0].dataIndex];
             const tot = payMode==='cash' ? r.cash
                       : payMode==='transfer' ? r.transfer
-                      : r.cash + r.transfer + r.trike + r.consign;
+                      : r.sale + r.trike + r.consign;
             return `เงินรับรวมวันนี้: ${THB(tot)} ฿`;
           }
         }} },
@@ -679,7 +691,7 @@ function render(){
   });
 
   document.getElementById('dailyNote').innerHTML = payMode==='all'
-    ? 'ความสูงของแต่ละแท่ง = เงินรับรวมของวันนั้น (ยอดขาย + รายได้รถสามล้อ + กำไรของฝากขาย) ' +
+    ? 'ความสูงของแต่ละแท่ง = ยอดขายรวม (คอลัมน์ C) + รายได้รถสามล้อ + กำไรของฝากขาย ' +
       'ใช้กระทบยอดกับช่อง "เดบิต / รายการรับ" ในสมุดบัญชีได้โดยตรง'
     : `แสดงเฉพาะ${payMode==='cash'?'เงินสด':'เงินโอน'} — กดปุ่ม "ทั้งหมด" ด้านบนเพื่อดูเงินรับรวมที่ตรงกับฝั่งเดบิตในสมุดบัญชี`;
 
@@ -793,98 +805,120 @@ function renderBalance(viewRows){
   const cutoff = viewRows[viewRows.length-1].date;
   const cutEnd = new Date(cutoff); cutEnd.setHours(23,59,59,999);
 
-  const B = {openCash:0, openBank:0, saleCash:0, saleTf:0, other:0,
-             spendCash:0, spendTf:0, moveToBank:0, moveToCash:0};
+  // ---- เงินรับสะสม (ทุกแถวตั้งแต่วันแรก ไม่ใช่แค่ช่วงที่เลือก) ----
+  //  ยอดขาย (C) + รายได้จากรถสามล้อ (I) + กำไรจากของฝากขาย (J)
+  //  ★ ใช้ยอดขายรวม ไม่ใช่ช่องเงินสด เพราะสมุดบัญชีลงเป็นเงินสดทั้งก้อน
+  const B = {sale:0, trike:0, consign:0, other:0, spend:0, transferMemo:0,
+             moveToBank:0, moveToCash:0};
 
-  // ยอดขายสะสม (ทุกแถว ไม่ใช่แค่ช่วงที่เลือก)
   allRows.forEach(r => {
     if(r.date > cutEnd) return;
-    B.saleCash += r.cash + r.trike + r.consign;   // รายได้สามล้อ/ฝากขาย รับเป็นเงินสด
-    B.saleTf   += r.transfer;
+    B.sale += r.sale; B.trike += r.trike; B.consign += r.consign;
+    B.transferMemo += r.transfer;
   });
 
-  // รายรับอื่น
   incomeRows.forEach(x => {
     if(x.date && x.date > cutEnd) return;
+    // ฝาก/ถอน = ย้ายเงินระหว่างกระเป๋า ไม่ใช่เงินเข้า-ออกกิจการ
     if(x.type.indexOf('ฝากเงิน') > -1){ B.moveToBank += x.amount; return; }
     if(x.type.indexOf('ถอนเงิน') > -1){ B.moveToCash += x.amount; return; }
-    if(x.channel === 'cash') B.openCash += x.amount; else B.openBank += x.amount;
     B.other += x.amount;
   });
 
-  // รายจ่าย
   expenseRows.forEach(x => {
     if(x.payDate && x.payDate > cutEnd) return;
-    if(x.method.indexOf('โอน') > -1) B.spendTf += x.amount; else B.spendCash += x.amount;
+    B.spend += x.amount;
   });
 
-  const cash = B.openCash + B.saleCash - B.spendCash - B.moveToBank + B.moveToCash;
-  const bank = B.openBank + B.saleTf   - B.spendTf   + B.moveToBank - B.moveToCash;
-  const total = cash + bank;
+  const received = B.sale + B.trike + B.consign + B.other;
+  const balance  = received - B.spend;
 
+  // ---- KPI ----
   let bk = '';
-  bk += kpiCard('เงินสดในมือ', THB(cash)+' ฿','var(--cash)', 'ตรวจนับกับเงินในลิ้นชักได้');
-  bk += kpiCard('เงินในบัญชี', THB(bank)+' ฿','var(--transfer)', 'ตรวจกับ statement ธนาคาร');
-  bk += kpiCard('เงินคงเหลือรวม', THB(total)+' ฿','var(--navy)', `ณ ${thDateFull(cutoff)}`);
+  bk += kpiCard('เงินคงเหลือ', THB(balance)+' ฿','var(--navy)',
+                `ยอดยกไป ณ ${thDateFull(cutoff)}`);
+  bk += kpiCard('เงินรับสะสม (เดบิต)', THB(received)+' ฿','var(--profit)',
+                'ขาย + สามล้อ + ฝากขาย + รับอื่น');
+  bk += kpiCard('เงินจ่ายสะสม (เครดิต)', THB(B.spend)+' ฿','var(--cost)',
+                'รายจ่ายจริงทั้งหมด');
   document.getElementById('balKpiRow').innerHTML = bk;
 
-  // ---- ตารางที่มาของเงิน ----
+  // ---- ตารางที่มาของเงินคงเหลือ ----
   const line = (label, v, color) =>
-    `<tr><td>${label}</td><td style="${color?'color:'+color:''}">${v>=0?'':'−'}${THB(Math.abs(v))}</td></tr>`;
+    '<tr><td>' + label + '</td><td style="' + (color ? 'color:'+color : '') + '">' +
+    (v >= 0 ? '' : '−') + THB(Math.abs(v)) + '</td></tr>';
   document.querySelector('#tblBal tbody').innerHTML =
     line('เงินทุน / รายรับอื่น', B.other, 'var(--navy)') +
-    line('ยอดขายเงินสด + สามล้อ + ฝากขาย', B.saleCash, 'var(--cash)') +
-    line('ยอดขายเงินโอน', B.saleTf, 'var(--transfer)') +
-    line('รายจ่ายที่จ่ายด้วยเงินสด', -B.spendCash, 'var(--cost)') +
-    line('รายจ่ายที่จ่ายด้วยเงินโอน', -B.spendTf, 'var(--cost)');
+    line('ยอดขายสินค้า', B.sale, 'var(--profit)') +
+    line('รายได้จากรถสามล้อ', B.trike, 'var(--trike)') +
+    line('กำไรจากของฝากขาย', B.consign, 'var(--consign)') +
+    line('รายจ่ายจริงทั้งหมด', -B.spend, 'var(--cost)');
   document.querySelector('#tblBal tfoot').innerHTML =
-    `<tr><td>เงินคงเหลือรวม</td><td>${THB(total)}</td></tr>`;
+    '<tr><td>เงินคงเหลือ</td><td>' + THB(balance) + '</td></tr>';
 
   const moved = B.moveToBank || B.moveToCash;
   document.getElementById('balNote').innerHTML =
-    (moved ? `มีการย้ายเงินระหว่างกระเป๋า: ฝากเข้าบัญชี ${THB0(B.moveToBank)} ฿ · ถอนเงินสด ${THB0(B.moveToCash)} ฿ (ไม่กระทบยอดรวม)<br>` : '') +
-    `ยอดนี้นับสะสมจากข้อมูลทั้งหมดถึงวันที่ ${thDateFull(cutoff)} ไม่ขึ้นกับวันเริ่มต้นที่เลือกในตัวกรอง`;
+    'นับสะสมจากข้อมูลทั้งหมดถึงวันที่ ' + thDateFull(cutoff) +
+    ' ไม่ขึ้นกับวันเริ่มต้นที่เลือกในตัวกรอง' +
+    '<br>ในยอดขายข้างต้น รับผ่านการโอน ' + THB0(B.transferMemo) +
+    ' ฿ (เป็นข้อมูลประกอบ รวมอยู่ในยอดขายแล้ว ไม่ได้บวกซ้ำ)' +
+    (moved ? '<br>ย้ายเงินระหว่างกระเป๋า: ฝากเข้าบัญชี ' + THB0(B.moveToBank) +
+             ' ฿ · ถอนเงินสด ' + THB0(B.moveToCash) + ' ฿ (ไม่กระทบยอดคงเหลือ)' : '');
 
-  // ---- กราฟความเคลื่อนไหวรายวัน (เฉพาะช่วงที่เลือก) ----
-  let runCash = cash, runBank = bank;
-  const back = [...viewRows].reverse();
-  const pts = [];
-  back.forEach(r => {
-    pts.unshift({date:r.date, cash:runCash, bank:runBank});
-    const k = isoLocal(r.date);
-    let dCash = r.cash + r.trike + r.consign, dBank = r.transfer;
-    incomeRows.forEach(x => { if(x.date && isoLocal(x.date) === k){
-      if(x.type.indexOf('ฝากเงิน') > -1){ dCash -= x.amount; dBank += x.amount; }
-      else if(x.type.indexOf('ถอนเงิน') > -1){ dCash += x.amount; dBank -= x.amount; }
-      else if(x.channel === 'cash') dCash += x.amount; else dBank += x.amount;
-    }});
-    expenseRows.forEach(x => { if(x.payDate && isoLocal(x.payDate) === k){
-      if(x.method.indexOf('โอน') > -1) dBank -= x.amount; else dCash -= x.amount;
-    }});
-    runCash -= dCash; runBank -= dBank;
-  });
-
+  renderChecks(viewRows, cutEnd);
   renderCashbook(viewRows, cutEnd);
+}
 
-  if(charts.bal) charts.bal.destroy();
-  charts.bal = new Chart(document.getElementById('chartBalance'), {
-    type:'line',
-    data:{
-      labels: pts.map(p=>thDate(p.date)),
-      datasets:[
-        {label:'เงินสดในมือ', data:pts.map(p=>p.cash), borderColor:'#C9A227',
-         backgroundColor:'rgba(201,162,39,.12)', fill:true, tension:.25, pointRadius:2, borderWidth:2.5},
-        {label:'เงินในบัญชี', data:pts.map(p=>p.bank), borderColor:'#2E7CD6',
-         backgroundColor:'rgba(46,124,214,.1)', fill:true, tension:.25, pointRadius:2, borderWidth:2.5}
-      ]
-    },
-    options:{
-      responsive:true, maintainAspectRatio:false,
-      plugins:{ legend:{position:'bottom'},
-        tooltip:{callbacks:{label:c=>` ${c.dataset.label}: ${THB(c.parsed.y)} ฿`}} },
-      scales:{ x:{grid:{display:false}}, y:{ticks:{callback:v=>THB0(v)}} }
-    }
+/* ====================================================
+   ตรวจสอบความสอดคล้อง — ข้อมูลพนักงานขาย เทียบ ฝ่ายบัญชี
+   ==================================================== */
+function renderChecks(viewRows, cutEnd){
+  const out = [];
+  const ok   = (t, d) => out.push('<div class="chk chk-ok"><span class="chk-i">✓</span><div>' + t +
+                                  (d ? '<div class="chk-days">' + d + '</div>' : '') + '</div></div>');
+  const warn = (t, d) => out.push('<div class="chk chk-warn"><span class="chk-i">!</span><div>' + t +
+                                  (d ? '<div class="chk-days">' + d + '</div>' : '') + '</div></div>');
+  const list = arr => arr.slice(0,6).map(d=>thDate(d)).join(', ') +
+                      (arr.length > 6 ? ' และอีก ' + (arr.length-6) + ' วัน' : '');
+
+  // 1. ยอดขายรวม (C) ต้องเท่ากับ เงินสด (D) + เงินโอน (E)
+  const uneven = viewRows.filter(r => Math.abs(r.sale - (r.cash + r.transfer)) > 0.005);
+  if(uneven.length){
+    const gap = uneven.reduce((a,r)=>a + (r.sale - (r.cash + r.transfer)), 0);
+    warn('<b>ยอดขายไม่สมดุลกับเงินสด+เงินโอน ' + uneven.length + ' วัน</b> ต่างรวม ' +
+         THB(Math.abs(gap)) + ' ฿ — ตรวจที่ฟอร์มพนักงานขาย', list(uneven.map(r=>r.date)));
+  } else {
+    ok('<b>ยอดขายสมดุล</b> ทุกวัน ยอดขายรวม = เงินสด + เงินโอน');
+  }
+
+  // 2. วันที่มีการจ่ายเงิน แต่ไม่มีรายงานการขาย
+  const saleDays = {};
+  viewRows.forEach(r => { saleDays[isoLocal(r.date)] = true; });
+  const from = parseInputDate(document.getElementById('dateFrom').value);
+  const payNoSale = {};
+  expenseRows.forEach(x => {
+    if(!x.payDate || x.payDate < from || x.payDate > cutEnd) return;
+    if(!saleDays[isoLocal(x.payDate)]) payNoSale[isoLocal(x.payDate)] = x.payDate;
   });
+  const pns = Object.values(payNoSale).sort((a,b)=>a-b);
+  if(pns.length) warn('<b>มีการจ่ายเงินแต่ไม่มีรายงานการขาย ' + pns.length + ' วัน</b> — ' +
+                      'ปกติได้ถ้าร้านปิด แต่ควรตรวจว่าพนักงานลืมส่งฟอร์มหรือไม่', list(pns));
+  else ok('<b>ทุกวันที่มีการจ่ายเงิน มีรายงานการขายครบ</b>');
+
+  // 3. รายการที่ไม่มีวันที่ — จะไม่ถูกนับในสมุดเงินสดรายวัน
+  const noDate = expenseRows.filter(x=>!x.payDate).length + incomeRows.filter(x=>!x.date).length;
+  if(noDate) warn('<b>มี ' + noDate + ' รายการที่ไม่ได้ระบุวันที่</b> — ' +
+                  'นับในยอดคงเหลือรวม แต่ไม่ปรากฏในสมุดเงินสดรายวัน');
+
+  // 4. สต็อกสิ้นเดือน
+  const needStock = [...new Set(viewRows.map(r =>
+      r.date.getFullYear() + '-' + String(r.date.getMonth()+1).padStart(2,'0')))];
+  const missStock = needStock.filter(k => stockMap[k] === undefined);
+  if(missStock.length) warn('<b>ยังไม่ได้นับสต็อก ' + missStock.length + ' เดือน</b> — ' +
+                            'กำไรสุทธิ (นับสต็อก) จะคำนวณไม่ได้', missStock.join(', '));
+  else if(needStock.length) ok('<b>นับสต็อกครบทุกเดือน</b> ในช่วงที่เลือก');
+
+  document.getElementById('checkBox').innerHTML = out.join('');
 }
 
 /* ====================================================
@@ -903,7 +937,8 @@ function renderCashbook(viewRows, cutEnd){
   };
 
   allRows.forEach(r => {
-    const received = r.cash + r.transfer + r.trike + r.consign;
+    // ยอดขาย (C) + รถสามล้อ (I) + ของฝากขาย (J) — ใช้ยอดขายรวม ไม่ใช่ช่องเงินสด
+    const received = r.sale + r.trike + r.consign;
     if(!received) return;
     const o = touch(r.date);
     o.debit += received; o.srcSale += received;
