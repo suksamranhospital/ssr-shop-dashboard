@@ -1106,7 +1106,6 @@ function renderReal(months){
 
   const withStock = data.filter(d => d.stockProfit !== null);
   const stockTotal = withStock.reduce((a,d)=>a+d.stockProfit, 0);
-  const diff = T.cashProfit - T.sysProfit;
 
   let rk = '';
   rk += kpiCard('รายได้รวม', THB(T.revenue)+' ฿','var(--navy)','ร้านค้า + สามล้อ + ฝากขาย');
@@ -1114,9 +1113,6 @@ function renderReal(months){
                 `ซื้อของ ${THB0(T.purchase)} · ดำเนินงาน ${THB0(T.opex)}`);
   rk += kpiCard('กำไรสุทธิ (เงินสด)', THB(T.cashProfit)+' ฿','var(--profit)',
                 T.revenue>0 ? `อัตรากำไรสุทธิ ${(T.cashProfit/T.revenue*100).toFixed(1)}%` : '');
-  rk += kpiCard('ส่วนต่างจากกำไรตามระบบ', (diff>=0?'+':'') + THB(diff)+' ฿',
-                diff>=0 ? 'var(--profit)' : '#C0392B',
-                `กำไรตามระบบ ${THB0(T.sysProfit)} ฿`);
   if(withStock.length > 0){
     rk += kpiCard('กำไรสุทธิ (นับสต็อก)', THB(stockTotal)+' ฿','var(--trike)',
                   `จาก ${withStock.length} เดือนที่มีการนับสต็อก`);
