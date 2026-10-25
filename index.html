@@ -809,6 +809,7 @@ function renderBalance(viewRows){
   //  ยอดขาย (C) + รายได้จากรถสามล้อ (I) + กำไรจากของฝากขาย (J)
   //  ★ ใช้ยอดขายรวม ไม่ใช่ช่องเงินสด เพราะสมุดบัญชีลงเป็นเงินสดทั้งก้อน
   const B = {sale:0, trike:0, consign:0, other:0, spend:0, transferMemo:0,
+             otherCash:0, otherBank:0, spendCash:0, spendBank:0,
              moveToBank:0, moveToCash:0};
 
   allRows.forEach(r => {
@@ -823,20 +824,34 @@ function renderBalance(viewRows){
     if(x.type.indexOf('ฝากเงิน') > -1){ B.moveToBank += x.amount; return; }
     if(x.type.indexOf('ถอนเงิน') > -1){ B.moveToCash += x.amount; return; }
     B.other += x.amount;
+    if(x.channel === 'cash') B.otherCash += x.amount; else B.otherBank += x.amount;
   });
 
   expenseRows.forEach(x => {
     if(x.payDate && x.payDate > cutEnd) return;
     B.spend += x.amount;
+    if(x.method.indexOf('โอน') > -1) B.spendBank += x.amount; else B.spendCash += x.amount;
   });
 
   const received = B.sale + B.trike + B.consign + B.other;
   const balance  = received - B.spend;
 
+  // ---- แยกกระเป๋า: เงินสดในมือ กับ เงินในบัญชีธนาคาร ----
+  //  ฝั่งธนาคาร = ยอดขายที่รับผ่านการโอน (คอลัมน์ E) + รายรับอื่นที่เข้าบัญชี
+  //               − รายจ่ายที่จ่ายด้วยเงินโอน
+  //  ฝั่งเงินสด = ส่วนที่เหลือทั้งหมด (ยอดขาย C หักเงินโอน + สามล้อ + ฝากขาย …)
+  //  ★ ส่วนต่างกรณี C ≠ D+E จะไปอยู่ฝั่งเงินสด เพื่อให้ยอดรวมตรงกับสมุดเสมอ
+  const bank = B.transferMemo + B.otherBank - B.spendBank + B.moveToBank - B.moveToCash;
+  const cash = balance - bank;
+
   // ---- KPI ----
   let bk = '';
   bk += kpiCard('เงินคงเหลือ', THB(balance)+' ฿','var(--navy)',
                 `ยอดยกไป ณ ${thDateFull(cutoff)}`);
+  bk += kpiCard('• เงินสดในมือ', THB(cash)+' ฿','var(--cash)',
+                'ตรวจนับกับเงินในลิ้นชักได้');
+  bk += kpiCard('• เงินในบัญชีธนาคาร', THB(bank)+' ฿','var(--transfer)',
+                'ตรวจกับสมุดบัญชี ธ.ออมสิน');
   bk += kpiCard('เงินรับสะสม (เดบิต)', THB(received)+' ฿','var(--profit)',
                 'ขาย + สามล้อ + ฝากขาย + รับอื่น');
   bk += kpiCard('เงินจ่ายสะสม (เครดิต)', THB(B.spend)+' ฿','var(--cost)',
@@ -860,8 +875,9 @@ function renderBalance(viewRows){
   document.getElementById('balNote').innerHTML =
     'นับสะสมจากข้อมูลทั้งหมดถึงวันที่ ' + thDateFull(cutoff) +
     ' ไม่ขึ้นกับวันเริ่มต้นที่เลือกในตัวกรอง' +
-    '<br>ในยอดขายข้างต้น รับผ่านการโอน ' + THB0(B.transferMemo) +
-    ' ฿ (เป็นข้อมูลประกอบ รวมอยู่ในยอดขายแล้ว ไม่ได้บวกซ้ำ)' +
+    '<br><b>เงินในบัญชี</b> = รับโอน ' + THB0(B.transferMemo + B.otherBank) +
+    ' ฿ − จ่ายด้วยเงินโอน ' + THB0(B.spendBank) + ' ฿ = ' + THB0(bank) + ' ฿' +
+    ' · <b>เงินสดในมือ</b> = ส่วนที่เหลือ ' + THB0(cash) + ' ฿' +
     (moved ? '<br>ย้ายเงินระหว่างกระเป๋า: ฝากเข้าบัญชี ' + THB0(B.moveToBank) +
              ' ฿ · ถอนเงินสด ' + THB0(B.moveToCash) + ' ฿ (ไม่กระทบยอดคงเหลือ)' : '');
 
