@@ -891,26 +891,12 @@ function renderChecks(viewRows, cutEnd){
     ok('<b>ยอดขายสมดุล</b> ทุกวัน ยอดขายรวม = เงินสด + เงินโอน');
   }
 
-  // 2. วันที่มีการจ่ายเงิน แต่ไม่มีรายงานการขาย
-  const saleDays = {};
-  viewRows.forEach(r => { saleDays[isoLocal(r.date)] = true; });
-  const from = parseInputDate(document.getElementById('dateFrom').value);
-  const payNoSale = {};
-  expenseRows.forEach(x => {
-    if(!x.payDate || x.payDate < from || x.payDate > cutEnd) return;
-    if(!saleDays[isoLocal(x.payDate)]) payNoSale[isoLocal(x.payDate)] = x.payDate;
-  });
-  const pns = Object.values(payNoSale).sort((a,b)=>a-b);
-  if(pns.length) warn('<b>มีการจ่ายเงินแต่ไม่มีรายงานการขาย ' + pns.length + ' วัน</b> — ' +
-                      'ปกติได้ถ้าร้านปิด แต่ควรตรวจว่าพนักงานลืมส่งฟอร์มหรือไม่', list(pns));
-  else ok('<b>ทุกวันที่มีการจ่ายเงิน มีรายงานการขายครบ</b>');
-
-  // 3. รายการที่ไม่มีวันที่ — จะไม่ถูกนับในสมุดเงินสดรายวัน
+  // 2. รายการที่ไม่มีวันที่ — จะไม่ถูกนับในสมุดเงินสดรายวัน
   const noDate = expenseRows.filter(x=>!x.payDate).length + incomeRows.filter(x=>!x.date).length;
   if(noDate) warn('<b>มี ' + noDate + ' รายการที่ไม่ได้ระบุวันที่</b> — ' +
                   'นับในยอดคงเหลือรวม แต่ไม่ปรากฏในสมุดเงินสดรายวัน');
 
-  // 4. สต็อกสิ้นเดือน
+  // 3. สต็อกสิ้นเดือน
   const needStock = [...new Set(viewRows.map(r =>
       r.date.getFullYear() + '-' + String(r.date.getMonth()+1).padStart(2,'0')))];
   const missStock = needStock.filter(k => stockMap[k] === undefined);
@@ -1022,12 +1008,10 @@ function renderCashbook(viewRows, cutEnd){
   }).join('');
 
   const first = show[0], last = show[show.length-1];
-  const noSale = show.filter(o => !o.srcSale && o.credit).length;
   document.getElementById('bookNote').innerHTML =
     'ยอดยกมาวันที่ ' + thDateFull(first.date) + ' คือ <strong>' + THB(first.open) + ' ฿</strong> · ' +
     'ยอดยกไปวันที่ ' + thDateFull(last.date) + ' คือ <strong>' + THB(last.close) + ' ฿</strong> — ' +
     'นำไปเทียบกับช่อง "ยอดยกไป" ในสมุดบัญชีได้โดยตรง ถ้าไม่ตรงให้ดูคอลัมน์ที่มาของรายการว่าวันไหนขาดหรือเกิน' +
-    (noSale ? '<br>มี ' + noSale + ' วันที่มีการจ่ายเงินแต่ไม่มีรายงานการขาย — ปกติได้ถ้าร้านปิด แต่ควรตรวจว่าพนักงานลืมส่งฟอร์มหรือไม่' : '') +
     '<br>เดบิต = ยอดขาย + รายได้รถสามล้อ + กำไรของฝากขาย + รายรับอื่น · เครดิต = รายจ่ายจริงทั้งหมด ' +
     '(รายการฝาก/ถอนระหว่างเงินสดกับบัญชีไม่นับ เพราะไม่ใช่เงินเข้า-ออกกิจการ)';
 }
